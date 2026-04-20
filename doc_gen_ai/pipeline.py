@@ -6,7 +6,7 @@ from .llm import (
     generate_section, select_relevant_templates,
 )
 from .parsing import extract_text
-from .storage import list_folder_filenames, load_all_files, load_files_by_name, save_file
+from .storage import get_file_url, list_folder_filenames, load_all_files, load_files_by_name, save_file
 
 
 def run(
@@ -98,5 +98,31 @@ def run(
     filename = f"{slug}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
     save_file(config.OUTPUT_FOLDER, filename, docx_bytes)
 
-    print(f"\n✓ Done — '{filename}' saved to managed folder '{config.OUTPUT_FOLDER}'")
+    print(f"\n✓ Done — '{filename}' saved to '{config.OUTPUT_FOLDER}'")
+    _display_download_link(filename, config.OUTPUT_FOLDER)
+
     return docx_bytes
+
+
+def _display_download_link(filename: str, folder_name: str) -> None:
+    url = get_file_url(folder_name, filename)
+    try:
+        from IPython.display import HTML, display
+        if url:
+            display(HTML(
+                f'<a href="{url}" target="_blank" '
+                f'style="display:inline-block;margin-top:8px;padding:8px 16px;'
+                f'background:#2563eb;color:#fff;border-radius:6px;'
+                f'text-decoration:none;font-family:sans-serif;font-size:13px;">'
+                f'⬇ Download {filename}</a>'
+            ))
+        else:
+            display(HTML(
+                f'<span style="font-family:sans-serif;font-size:13px;color:#64748b">'
+                f'Saved: {filename} (open the {folder_name} folder to download)</span>'
+            ))
+    except Exception:
+        if url:
+            print(f"Download: {url}")
+        else:
+            print(f"Saved: {filename}")
