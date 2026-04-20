@@ -42,7 +42,15 @@ print("✓ Configuration set")
 # CELL 2 — Run
 # ══════════════════════════════════════════════════════════════════════════════
 
-from doc_gen_ai import run
+import importlib
+import sys
+
+# Flush any cached doc_gen_ai modules so Dataiku always loads the latest code.
+for _mod in list(sys.modules):
+    if _mod.startswith("doc_gen_ai"):
+        del sys.modules[_mod]
+
+from doc_gen_ai.pipeline import run
 
 run(
     doc_type=DOC_TYPE,
