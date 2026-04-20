@@ -1,11 +1,15 @@
 import io
 import json
 import logging
+import time
 from datetime import datetime
 
 from . import config
 
 logger = logging.getLogger(__name__)
+
+_MAX_RETRIES = 3
+_RETRY_DELAY = 5  # seconds between retries
 
 
 def _trunc(text: str) -> str:
@@ -18,14 +22,30 @@ def _llm_call(messages: list, connection_id: str = None) -> str:
     api_client = dataiku.api_client()
     project = api_client.get_project(dataiku.default_project_key())
     llm = project.get_llm(conn)
-    completion = llm.new_completion()
-    for msg in messages:
-        completion.with_message(msg["content"], msg["role"])
-    try:
-        completion.with_max_output_tokens(8192)
-    except Exception:
-        pass
-    return completion.execute().text
+
+    last_exc = None
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            completion = llm.new_completion()
+            for msg in messages:
+                completion.with_message(msg["content"], msg["role"])
+            try:
+                completion.with_max_output_tokens(8192)
+            except Exception:
+                pass
+            return completion.execute().text
+        except Exception as exc:
+            last_exc = exc
+            if attempt < _MAX_RETRIES:
+                logger.warning(
+                    "LLM call failed (attempt %d/%d): %s — retrying in %ds…",
+                    attempt, _MAX_RETRIES, exc, _RETRY_DELAY,
+                )
+                print(f"      [retry {attempt}/{_MAX_RETRIES}] LLM error: {exc} — retrying in {_RETRY_DELAY}s…")
+                time.sleep(_RETRY_DELAY)
+            else:
+                logger.error("LLM call failed after %d attempts: %s", _MAX_RETRIES, exc)
+    raise last_exc
 
 
 def _llm_json(messages: list, connection_id: str = None) -> dict:
@@ -60,6 +80,48 @@ def select_relevant_templates(filenames: list, doc_type: str, connection_id: str
         },
     ], connection_id=connection_id)
     return result.get("selected", "")
+
+
+def extract_writing_context(example_texts: list, connection_id: str = None) -> str:
+    """Synthesise a writing style guide from context example documents.
+
+    Extracts tone, language patterns, and phrasing conventions without
+    reproducing any specific content from the examples.
+    Returns a plain-text style guide (300-500 words).
+    """
+    combined = "\n\n---\n\n".join(
+        f"[Example {i+1}]\n{_trunc(t)}" for i, t in enumerate(example_texts)
+    )
+    return _llm_call([
+        {
+            "role": "system",
+            "content": (
+                "You are an expert in technical writing for ISO 13485 regulated software. "
+                "Analyse example documents and produce a writing style guide. "
+                "Focus entirely on style, tone, and language patterns. "
+                "Do not reproduce, summarise, or reference any specific content from the examples."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "Analyse these example technical documents and produce a concise writing style guide "
+                "for use when authoring new documents of the same type.\n\n"
+                f"{combined}\n\n"
+                "Capture:\n"
+                "- Overall tone and register (formality level, active vs passive voice, person)\n"
+                "- How technical claims, rationale, and evidence are typically expressed\n"
+                "- Characteristic sentence structures, transitions, and paragraph patterns\n"
+                "- How requirements, standards, and compliance obligations are referenced\n"
+                "- Domain-specific terminology and phrasing conventions\n"
+                "- What to avoid (verbosity, hedging language, generic statements)\n\n"
+                "Write this as a practical style guide for a technical writer. "
+                "Do NOT quote, paraphrase, or reference any specific facts, names, systems, "
+                "or details from the example documents — only the writing patterns matter. "
+                "Keep it to 400-500 words."
+            ),
+        },
+    ], connection_id=connection_id)
 
 
 def discover_template_structure(template_texts: list, doc_type: str, connection_id: str = None) -> dict:
@@ -132,10 +194,18 @@ def deep_research(doc_texts: list, doc_type: str, connection_id: str = None) -> 
 
 def generate_section(
     doc_type: str, section: dict, research: dict,
-    style: str, reg_lang: list, connection_id: str = None,
+    style: str, reg_lang: list,
+    writing_context: str = None,
+    connection_id: str = None,
 ) -> str:
     required = "\n".join(f"- {e}" for e in section.get("required_elements", []))
     reg = "\n".join(f"- {p}" for p in reg_lang[:10])
+    writing_context_block = (
+        f"\nWriting style reference — use this to guide tone and language only. "
+        f"These are patterns from similar documents; do not copy their content literally:\n"
+        f"{writing_context}\n"
+        if writing_context else ""
+    )
     return _llm_call([
         {
             "role": "system",
@@ -164,8 +234,9 @@ def generate_section(
                 f"Purpose: {section['description']}\n"
                 f"Required elements:\n{required}\n\n"
                 f"Project research:\n{json.dumps(research, indent=2)[:6000]}\n\n"
-                f"Style notes: {style}\n"
-                f"Regulatory language to use:\n{reg}\n\n"
+                f"Template style notes: {style}\n"
+                f"Regulatory language to use:\n{reg}\n"
+                f"{writing_context_block}\n"
                 "Write professional, complete content. Do not repeat the section heading."
             ),
         },
