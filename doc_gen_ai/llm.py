@@ -424,23 +424,21 @@ def assemble_docx(doc_type: str, sections: list) -> bytes:
     doc.add_heading("Table of Contents", level=1)
 
     visible_sections = [
-        (i, h) for i, (h, _) in enumerate(sections, 1)
+        (i, h, c) for i, (h, c) in enumerate(sections, 1)
         if h.strip().lower() not in _TOC_SECTION_NAMES
     ]
-    for num, heading in visible_sections:
+    for num, heading, _ in visible_sections:
         para = doc.add_paragraph(style="Normal")
         para.paragraph_format.space_after = Pt(2)
-        run_num = para.add_run(f"{num}.  ")
+        run_num = para.add_run(f"{num}. ")
         run_num.bold = True
         para.add_run(heading)
 
     doc.add_page_break()
 
     # ── Sections (skip any TOC section returned by the LLM) ──────────────────
-    for heading, content in sections:
-        if heading.strip().lower() in _TOC_SECTION_NAMES:
-            continue
-        doc.add_heading(heading, level=1)
+    for num, heading, content in visible_sections:
+        doc.add_heading(f"{num}. {heading}", level=1)
         _render_content(doc, content)
 
     buf = io.BytesIO()
