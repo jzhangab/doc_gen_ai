@@ -31,9 +31,10 @@ DOC_TYPE = "User Guide"
 LLM_CONNECTION_ID = ""
 
 # Managed folder names. Change only if you named yours differently.
-PROJECT_DOCS_FOLDER = "project_documentation"
-TEMPLATES_FOLDER    = "doc_templates"
-OUTPUT_FOLDER       = "generated_docs"
+PROJECT_DOCS_FOLDER      = "project_documentation"
+TEMPLATES_FOLDER         = "doc_templates"
+CONTEXT_EXAMPLES_FOLDER  = "context_examples"
+OUTPUT_FOLDER            = "generated_docs"
 
 print("✓ Configuration set")
 
@@ -57,5 +58,6 @@ run(
     connection_id=LLM_CONNECTION_ID or None,
     project_docs_folder=PROJECT_DOCS_FOLDER,
     templates_folder=TEMPLATES_FOLDER,
+    context_examples_folder=CONTEXT_EXAMPLES_FOLDER,
     output_folder=OUTPUT_FOLDER,
 )

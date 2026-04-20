@@ -3,7 +3,7 @@ from datetime import datetime
 from . import config
 from .llm import (
     assemble_docx, critique_document, deduplicate_sections, deep_research,
-    discover_template_structure, fix_section_content,
+    discover_template_structure, extract_writing_context, fix_section_content,
     generate_section, select_relevant_templates,
 )
 from .parsing import extract_text
@@ -15,6 +15,7 @@ def run(
     connection_id: str = None,
     project_docs_folder: str = None,
     templates_folder: str = None,
+    context_examples_folder: str = None,
     output_folder: str = None,
 ) -> bytes:
     """Generate a V&V document from project documentation.
@@ -35,13 +36,15 @@ def run(
         config.PROJECT_DOCS_FOLDER = project_docs_folder
     if templates_folder:
         config.TEMPLATES_FOLDER = templates_folder
+    if context_examples_folder:
+        config.CONTEXT_EXAMPLES_FOLDER = context_examples_folder
     if output_folder:
         config.OUTPUT_FOLDER = output_folder
 
     conn = config.DEFAULT_LLM_CONNECTION_ID
 
     # ── Step 1: Load project documentation ───────────────────────────────────
-    print(f"[1/5] Loading project documentation from '{config.PROJECT_DOCS_FOLDER}'…")
+    print(f"[1/6] Loading project documentation from '{config.PROJECT_DOCS_FOLDER}'…")
     raw_docs = load_all_files(config.PROJECT_DOCS_FOLDER)
     if not raw_docs:
         raise ValueError(
@@ -51,8 +54,20 @@ def run(
     print(f"      {len(raw_docs)} file(s): {', '.join(n for n, _ in raw_docs)}")
     doc_texts = [extract_text(fname, data) for fname, data in raw_docs]
 
-    # ── Step 2: Discover relevant templates ──────────────────────────────────
-    print(f"[2/5] Discovering templates for '{doc_type}' in '{config.TEMPLATES_FOLDER}'…")
+    # ── Step 2: Load context examples ────────────────────────────────────────
+    print(f"[2/6] Loading context examples from '{config.CONTEXT_EXAMPLES_FOLDER}'…")
+    writing_context = None
+    raw_examples = load_all_files(config.CONTEXT_EXAMPLES_FOLDER)
+    if raw_examples:
+        print(f"      {len(raw_examples)} example(s): {', '.join(n for n, _ in raw_examples)}")
+        example_texts = [extract_text(fname, data) for fname, data in raw_examples]
+        writing_context = extract_writing_context(example_texts, connection_id=conn)
+        print("      Writing context synthesised.")
+    else:
+        print("      No context examples found — proceeding without style reference.")
+
+    # ── Step 3: Discover relevant templates ──────────────────────────────────
+    print(f"[3/6] Discovering templates for '{doc_type}' in '{config.TEMPLATES_FOLDER}'…")
     all_filenames = list_folder_filenames(config.TEMPLATES_FOLDER)
     if not all_filenames:
         raise ValueError(
@@ -69,30 +84,33 @@ def run(
     raw_templates = load_files_by_name(config.TEMPLATES_FOLDER, [selected])
     template_texts = [extract_text(fname, data) for fname, data in raw_templates]
 
-    # ── Step 3: Deep research ─────────────────────────────────────────────────
-    print(f"[3/5] Conducting deep research on project documentation…")
+    # ── Step 4: Deep research ─────────────────────────────────────────────────
+    print(f"[4/6] Conducting deep research on project documentation…")
     research = deep_research(doc_texts, doc_type, connection_id=conn)
     populated = [k for k, v in research.items() if v]
     print(f"      Extracted fields: {', '.join(populated)}")
 
-    # ── Step 4: Analyse template structure ────────────────────────────────────
-    print(f"[4/5] Analysing template structure…")
+    # ── Step 5: Analyse template structure ────────────────────────────────────
+    print(f"[5/6] Analysing template structure…")
     structure = discover_template_structure(template_texts, doc_type, connection_id=conn)
     sections = structure.get("sections", [])
     style = structure.get("style_notes", "")
     reg_lang = structure.get("regulatory_language", [])
     print(f"      {len(sections)} section(s) identified")
 
-    # ── Step 5: Generate sections and assemble ────────────────────────────────
-    print(f"[5/6] Generating {len(sections)} section(s)…")
+    # ── Step 6: Generate sections and assemble ────────────────────────────────
+    print(f"[6/7] Generating {len(sections)} section(s)…")
     sections_out = []
     for i, section in enumerate(sections, 1):
         print(f"      [{i}/{len(sections)}] {section['heading']}")
-        content = generate_section(doc_type, section, research, style, reg_lang, connection_id=conn)
+        content = generate_section(
+            doc_type, section, research, style, reg_lang,
+            writing_context=writing_context, connection_id=conn,
+        )
         sections_out.append((section["heading"], content))
 
-    # ── Step 6: Critique, fix, and deduplicate ───────────────────────────────
-    print("[6/6] Critiquing document…")
+    # ── Step 7: Critique, fix, and deduplicate ───────────────────────────────
+    print("[7/7] Critiquing document…")
 
     # Remove structural duplicates (same heading) before LLM critique
     seen_headings: set = set()
