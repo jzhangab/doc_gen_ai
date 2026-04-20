@@ -142,13 +142,14 @@ def generate_section(
             "content": (
                 "You are an expert technical writer for ISO 13485 regulated "
                 "software V&V documentation. "
-                "Format your response using the following conventions so it renders "
-                "correctly in Microsoft Word:\n"
-                "- Use ## for sub-headings\n"
+                "Format your response using these conventions so it renders correctly "
+                "in Microsoft Word:\n"
+                "- Use ## for sub-headings, ### for sub-sub-headings\n"
                 "- Use - for bullet list items\n"
                 "- Use 1. 2. 3. for numbered list items\n"
                 "- Use **text** for bold\n"
-                "- Separate paragraphs with a blank line\n"
+                "- For tables use markdown pipe syntax: | Col1 | Col2 |\\n|---|---|\\n| val | val |\n"
+                "- Separate paragraphs and blocks with a blank line\n"
                 "Do not use any other markdown syntax."
             ),
         },
@@ -168,26 +169,31 @@ def generate_section(
     ], connection_id=connection_id)
 
 
+_TOC_SECTION_NAMES = {"table of contents", "contents", "toc"}
+
+
 def assemble_docx(doc_type: str, sections: list) -> bytes:
-    import re
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
     from docx.shared import Inches, Pt, RGBColor
 
     doc = Document()
 
-    # Margins
     for sec in doc.sections:
         sec.top_margin    = Inches(1)
         sec.bottom_margin = Inches(1)
         sec.left_margin   = Inches(1.25)
         sec.right_margin  = Inches(1.25)
 
-    # Cover
-    t = doc.add_heading(doc_type, level=0)
-    t.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    # ── Cover page ────────────────────────────────────────────────────────────
+    title = doc.add_heading(doc_type, level=0)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    meta = doc.add_paragraph(f"Standard: ISO 13485  |  Generated: {datetime.now().strftime('%Y-%m-%d')}")
+    meta = doc.add_paragraph(
+        f"Standard: ISO 13485  |  Generated: {datetime.now().strftime('%Y-%m-%d')}"
+    )
     meta.alignment = WD_ALIGN_PARAGRAPH.CENTER
     for run in meta.runs:
         run.font.color.rgb = RGBColor(0x64, 0x74, 0x8B)
@@ -195,7 +201,40 @@ def assemble_docx(doc_type: str, sections: list) -> bytes:
 
     doc.add_page_break()
 
+    # ── Table of Contents (Word field, updates on open) ───────────────────────
+    toc_heading = doc.add_heading("Table of Contents", level=1)
+
+    toc_para = doc.add_paragraph()
+    r_begin = toc_para.add_run()
+    fc_begin = OxmlElement("w:fldChar")
+    fc_begin.set(qn("w:fldCharType"), "begin")
+    r_begin._r.append(fc_begin)
+
+    r_instr = toc_para.add_run()
+    instr = OxmlElement("w:instrText")
+    instr.set(qn("xml:space"), "preserve")
+    instr.text = ' TOC \\o "1-3" \\h \\z \\u '
+    r_instr._r.append(instr)
+
+    r_sep = toc_para.add_run()
+    fc_sep = OxmlElement("w:fldChar")
+    fc_sep.set(qn("w:fldCharType"), "separate")
+    r_sep._r.append(fc_sep)
+
+    r_placeholder = toc_para.add_run()
+    r_placeholder.text = 'Right-click this line and choose "Update Field" to populate the table of contents.'
+
+    r_end = toc_para.add_run()
+    fc_end = OxmlElement("w:fldChar")
+    fc_end.set(qn("w:fldCharType"), "end")
+    r_end._r.append(fc_end)
+
+    doc.add_page_break()
+
+    # ── Sections (skip any TOC section returned by the LLM) ──────────────────
     for heading, content in sections:
+        if heading.strip().lower() in _TOC_SECTION_NAMES:
+            continue
         doc.add_heading(heading, level=1)
         _render_content(doc, content)
 
@@ -209,8 +248,7 @@ def _render_content(doc, content: str) -> None:
     lines = content.splitlines()
     i = 0
     while i < len(lines):
-        line = lines[i]
-        stripped = line.strip()
+        stripped = lines[i].strip()
 
         if not stripped:
             i += 1
@@ -238,13 +276,18 @@ def _render_content(doc, content: str) -> None:
             i += 1
             continue
 
-        # Regular paragraph — collect consecutive plain lines
+        # Markdown table — collect all consecutive pipe rows
+        if stripped.startswith("|"):
+            i = _render_table(doc, lines, i)
+            continue
+
+        # Plain paragraph — accumulate consecutive non-special lines
         block = []
         while i < len(lines):
             s = lines[i].strip()
             if not s:
                 break
-            if s.startswith(("## ", "### ", "- ", "* ")) or re.match(r"^\d+\.\s", s):
+            if s.startswith(("## ", "### ", "- ", "* ", "|")) or re.match(r"^\d+\.\s", s):
                 break
             block.append(s)
             i += 1
@@ -253,13 +296,52 @@ def _render_content(doc, content: str) -> None:
             _add_runs(para, " ".join(block))
 
 
+def _render_table(doc, lines: list, start: int) -> int:
+    import re
+    from docx.shared import RGBColor
+
+    # Collect consecutive pipe-delimited rows
+    raw_rows = []
+    i = start
+    while i < len(lines) and lines[i].strip().startswith("|"):
+        raw_rows.append(lines[i].strip())
+        i += 1
+
+    # Parse cells, skipping separator rows (|---|---|)
+    parsed = []
+    for row in raw_rows:
+        if re.match(r"^\|[-| :]+\|$", row):
+            continue
+        cells = [c.strip() for c in row.strip("|").split("|")]
+        parsed.append(cells)
+
+    if not parsed:
+        return i
+
+    num_cols = max(len(r) for r in parsed)
+    table = doc.add_table(rows=len(parsed), cols=num_cols)
+    table.style = "Table Grid"
+
+    for r_idx, row_cells in enumerate(parsed):
+        for c_idx in range(num_cols):
+            text = row_cells[c_idx] if c_idx < len(row_cells) else ""
+            cell = table.cell(r_idx, c_idx)
+            cell.text = ""
+            para = cell.paragraphs[0]
+            _add_runs(para, text)
+            if r_idx == 0:
+                for run in para.runs:
+                    run.bold = True
+
+    # Blank paragraph after table for spacing
+    doc.add_paragraph()
+    return i
+
+
 def _add_runs(para, text: str) -> None:
     import re
-    # Split on **bold** tokens
-    parts = re.split(r"(\*\*[^*]+\*\*)", text)
-    for part in parts:
+    for part in re.split(r"(\*\*[^*]+\*\*)", text):
         if part.startswith("**") and part.endswith("**"):
-            run = para.add_run(part[2:-2])
-            run.bold = True
+            para.add_run(part[2:-2]).bold = True
         else:
             para.add_run(part)
