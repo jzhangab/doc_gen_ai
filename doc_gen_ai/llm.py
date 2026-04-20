@@ -172,11 +172,28 @@ def generate_section(
     ], connection_id=connection_id)
 
 
+_GDP_RULES = """\
+Good Documentation Practice (GDP) rules to enforce:
+- ATTRIBUTABLE: All claims, decisions, and results must be attributable to a defined role, \
+system, or process — not left anonymous or vague.
+- ACCURATE & UNAMBIGUOUS: No speculative language ("may", "might", "could", "should consider"). \
+Statements must be definitive and precise.
+- COMPLETE: No placeholders, TBDs, bracketed gaps, or omitted required elements. Every required \
+element of the section must be substantively addressed.
+- CONSISTENT: Terminology, abbreviations, and system names must be used consistently throughout. \
+Acronyms must be defined on first use.
+- TRACEABLE: References to requirements, standards (e.g. ISO 13485, IEC 62304), or other \
+documents must be explicit and specific, not generic.
+- LEGIBLE & CLEAR: No ambiguous pronouns, run-on logic, or contradictory statements.
+- CONTEMPORANEOUS CONTEXT: Dates and version references must be present where relevant.
+"""
+
+
 def critique_document(doc_type: str, sections: list, connection_id: str = None) -> list:
     """Scan all sections and return a list of issues to fix.
 
     Each issue: {index, heading, type, description}
-    type: "duplicate" | "formatting" | "incomplete"
+    type: "duplicate" | "formatting" | "incomplete" | "gdp"
     """
     overview = "\n\n".join(
         f"[Section {i+1}: {h}]\n{c[:600]}{'…' if len(c) > 600 else ''}"
@@ -186,23 +203,26 @@ def critique_document(doc_type: str, sections: list, connection_id: str = None) 
         {
             "role": "system",
             "content": (
-                "You are a strict document quality reviewer for ISO 13485 V&V documentation. "
-                "Identify quality issues in document sections. Return only valid JSON."
+                "You are a strict document quality reviewer for ISO 13485 V&V documentation "
+                "with expertise in Good Documentation Practice (GDP). "
+                "Identify every quality issue in the document sections. Return only valid JSON."
             ),
         },
         {
             "role": "user",
             "content": (
-                f'Review these sections of a "{doc_type}" document for quality issues.\n\n'
+                f'Review these sections of a "{doc_type}" document.\n\n'
                 f"{overview}\n\n"
-                "Identify:\n"
-                "1. Sections whose content substantially duplicates another section\n"
-                "2. Sections with broken or inconsistent formatting "
-                "(e.g. raw markdown symbols visible as text, mismatched list styles)\n"
-                "3. Sections that are incomplete, generic, or placeholder-only\n\n"
-                "Return JSON — empty list if no issues:\n"
+                "Check for ALL of the following issue types:\n\n"
+                "1. DUPLICATE — content that substantially repeats another section\n"
+                "2. FORMATTING — broken or inconsistent formatting "
+                "(raw markdown symbols, mismatched list styles)\n"
+                "3. INCOMPLETE — generic, placeholder-only, or missing required elements\n"
+                f"4. GDP — any violation of the following rules:\n{_GDP_RULES}\n"
+                "Return JSON — empty list if no issues. "
+                "Report every GDP violation as a separate issue entry:\n"
                 '{"issues": [{"index": 0, "heading": "...", '
-                '"type": "duplicate|formatting|incomplete", "description": "..."}]}'
+                '"type": "duplicate|formatting|incomplete|gdp", "description": "..."}]}'
             ),
         },
     ], connection_id=connection_id)
@@ -217,8 +237,11 @@ def fix_section_content(
         {
             "role": "system",
             "content": (
-                "You are an expert technical writer for ISO 13485 V&V documentation. "
+                "You are an expert technical writer for ISO 13485 V&V documentation "
+                "with expertise in Good Documentation Practice (GDP). "
                 "Fix the provided section content according to the issue described. "
+                "Ensure the corrected content satisfies all GDP rules:\n"
+                f"{_GDP_RULES}\n"
                 "Write in flowing professional prose as the default. "
                 "Use bullet lists only for genuinely enumerable parallel items (4+), "
                 "numbered lists only for sequential steps. "
