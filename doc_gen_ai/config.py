@@ -1,6 +1,8 @@
 DEFAULT_LLM_CONNECTION_ID = "azureopenai:Azure-OpenAi:gpt-5.2"
 SERP_API_KEY = ""
-MANAGED_FOLDER_ID = "doc_templates"
+PROJECT_DOCS_FOLDER = "project_documentation"
+TEMPLATES_FOLDER = "doc_templates"
+OUTPUT_FOLDER = "generated_docs"
 
 DOC_TYPES = [
     "Administration Guide",

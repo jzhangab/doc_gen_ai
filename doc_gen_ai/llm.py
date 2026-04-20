@@ -37,7 +37,8 @@ def _llm_json(messages: list, connection_id: str = None) -> dict:
     return json.loads(raw)
 
 
-def _discover_template(template_texts: list, doc_type: str, connection_id: str = None) -> dict:
+def discover_template_structure(template_texts: list, doc_type: str, connection_id: str = None) -> dict:
+    """Analyse example documents and extract section structure, style, and regulatory language."""
     combined = "\n\n---\n\n".join(
         f"[Example {i+1}]\n{_trunc(t)}" for i, t in enumerate(template_texts)
     )
@@ -52,7 +53,7 @@ def _discover_template(template_texts: list, doc_type: str, connection_id: str =
         {
             "role": "user",
             "content": (
-                f'Analyze these example "{doc_type}" documents and extract their template structure.\n\n'
+                f'Analyse these example "{doc_type}" documents and extract their structure.\n\n'
                 f"{combined}\n\n"
                 "Return JSON:\n"
                 '{"sections":[{"heading":"...","description":"...","required_elements":["..."]}],'
@@ -62,33 +63,49 @@ def _discover_template(template_texts: list, doc_type: str, connection_id: str =
     ], connection_id=connection_id)
 
 
-def _research_inputs(input_texts: list, doc_type: str, connection_id: str = None) -> dict:
+def deep_research(doc_texts: list, doc_type: str, connection_id: str = None) -> dict:
+    """Extract comprehensive project intelligence needed to write doc_type."""
     combined = "\n\n---\n\n".join(
-        f"[Input {i+1}]\n{_trunc(t)}" for i, t in enumerate(input_texts)
+        f"[Document {i+1}]\n{_trunc(t)}" for i, t in enumerate(doc_texts)
     )
     return _llm_json([
         {
             "role": "system",
             "content": (
                 "You are an expert technical analyst for ISO 13485 regulated software. "
+                "Conduct deep research on the provided project documentation and extract "
+                "every piece of information that will be needed to author a compliance document. "
                 "Return only valid JSON."
             ),
         },
         {
             "role": "user",
             "content": (
-                f'Extract all information needed to write a "{doc_type}" from these input documents.\n\n'
+                f'Conduct deep research on these project documents to extract everything '
+                f'needed to write a "{doc_type}" per ISO 13485.\n\n'
                 f"{combined}\n\n"
-                "Return JSON:\n"
-                '{"system_name":"...","system_description":"...","technical_specs":{},'
-                '"requirements":[],"infrastructure":{},"stakeholders":[],'
-                '"key_facts":[],"other_details":{}}'
+                "Return a comprehensive JSON object:\n"
+                '{\n'
+                '  "system_name": "...",\n'
+                '  "system_description": "...",\n'
+                '  "purpose": "...",\n'
+                '  "requirements": [],\n'
+                '  "design_specifications": {},\n'
+                '  "testing_methodology": {},\n'
+                '  "infrastructure": {},\n'
+                '  "stakeholders": [],\n'
+                '  "regulatory_context": "...",\n'
+                '  "key_decisions": [],\n'
+                '  "assumptions": [],\n'
+                '  "constraints": [],\n'
+                '  "discovered_artifacts": {}\n'
+                '}'
             ),
         },
     ], connection_id=connection_id)
 
 
-def _generate_section(
+def generate_section(
     doc_type: str, section: dict, research: dict,
     style: str, reg_lang: list, connection_id: str = None,
 ) -> str:
@@ -109,16 +126,16 @@ def _generate_section(
                 f"document per ISO 13485.\n\n"
                 f"Purpose: {section['description']}\n"
                 f"Required elements:\n{required}\n\n"
-                f"System info:\n{json.dumps(research, indent=2)[:5000]}\n\n"
-                f"Style: {style}\n"
-                f"Regulatory language:\n{reg}\n\n"
-                "Write professional prose only — do not repeat the section heading."
+                f"Project research:\n{json.dumps(research, indent=2)[:6000]}\n\n"
+                f"Style notes: {style}\n"
+                f"Regulatory language to use:\n{reg}\n\n"
+                "Write professional, complete prose. Do not repeat the section heading."
             ),
         },
     ], connection_id=connection_id)
 
 
-def _assemble_docx(doc_type: str, sections: list) -> bytes:
+def assemble_docx(doc_type: str, sections: list) -> bytes:
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
 
