@@ -396,8 +396,6 @@ _TOC_SECTION_NAMES = {"table of contents", "contents", "toc"}
 def assemble_docx(doc_type: str, sections: list) -> bytes:
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.oxml import OxmlElement
-    from docx.oxml.ns import qn
     from docx.shared import Inches, Pt, RGBColor
 
     doc = Document()
@@ -422,33 +420,19 @@ def assemble_docx(doc_type: str, sections: list) -> bytes:
 
     doc.add_page_break()
 
-    # ── Table of Contents (Word field, updates on open) ───────────────────────
-    toc_heading = doc.add_heading("Table of Contents", level=1)
+    # ── Table of Contents (pre-populated from section headings) ──────────────
+    doc.add_heading("Table of Contents", level=1)
 
-    toc_para = doc.add_paragraph()
-    r_begin = toc_para.add_run()
-    fc_begin = OxmlElement("w:fldChar")
-    fc_begin.set(qn("w:fldCharType"), "begin")
-    r_begin._r.append(fc_begin)
-
-    r_instr = toc_para.add_run()
-    instr = OxmlElement("w:instrText")
-    instr.set(qn("xml:space"), "preserve")
-    instr.text = ' TOC \\o "1-3" \\h \\z \\u '
-    r_instr._r.append(instr)
-
-    r_sep = toc_para.add_run()
-    fc_sep = OxmlElement("w:fldChar")
-    fc_sep.set(qn("w:fldCharType"), "separate")
-    r_sep._r.append(fc_sep)
-
-    r_placeholder = toc_para.add_run()
-    r_placeholder.text = 'Right-click this line and choose "Update Field" to populate the table of contents.'
-
-    r_end = toc_para.add_run()
-    fc_end = OxmlElement("w:fldChar")
-    fc_end.set(qn("w:fldCharType"), "end")
-    r_end._r.append(fc_end)
+    visible_sections = [
+        (i, h) for i, (h, _) in enumerate(sections, 1)
+        if h.strip().lower() not in _TOC_SECTION_NAMES
+    ]
+    for num, heading in visible_sections:
+        para = doc.add_paragraph(style="Normal")
+        para.paragraph_format.space_after = Pt(2)
+        run_num = para.add_run(f"{num}.  ")
+        run_num.bold = True
+        para.add_run(heading)
 
     doc.add_page_break()
 
