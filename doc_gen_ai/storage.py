@@ -65,21 +65,23 @@ def load_files_by_name(folder_id: str, filenames: list) -> list:
 
 
 def get_file_url(folder_name: str, filename: str) -> str:
-    """Return a direct download URL for a file in a Dataiku managed folder."""
+    """Return a browser-relative download URL for a file in a Dataiku managed folder.
+
+    Uses a path-only URL so it resolves against the Dataiku host the browser
+    is already connected to, avoiding the internal address returned by client.host.
+    """
     try:
         import urllib.parse
         import dataiku
-        client = dataiku.api_client()
         project_key = dataiku.default_project_key()
-        project = client.get_project(project_key)
+        project = dataiku.api_client().get_project(project_key)
         folder_list = project.list_managed_folders()
         folder_obj = next((f for f in folder_list if f["name"] == folder_name), None)
         if not folder_obj:
             return ""
-        host = client.host.rstrip("/")
         fid = folder_obj["id"]
         path = urllib.parse.quote(f"/{filename}")
-        return f"{host}/dip/api/managedfolder/{fid}/download?projectKey={project_key}&path={path}"
+        return f"/dip/api/managedfolder/{fid}/download?projectKey={project_key}&path={path}"
     except Exception as exc:
         logger.warning("Could not build download URL: %s", exc)
         return ""
