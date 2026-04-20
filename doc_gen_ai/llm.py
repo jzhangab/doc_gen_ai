@@ -37,8 +37,8 @@ def _llm_json(messages: list, connection_id: str = None) -> dict:
     return json.loads(raw)
 
 
-def select_relevant_templates(filenames: list, doc_type: str, connection_id: str = None) -> list:
-    """Given a list of filenames, return those that are relevant templates for doc_type."""
+def select_relevant_templates(filenames: list, doc_type: str, connection_id: str = None) -> str:
+    """Return the single filename most consistent with doc_type."""
     file_list = "\n".join(f"- {f}" for f in filenames)
     result = _llm_json([
         {
@@ -52,15 +52,14 @@ def select_relevant_templates(filenames: list, doc_type: str, connection_id: str
             "role": "user",
             "content": (
                 f'I need to generate a "{doc_type}" document.\n\n'
-                f"The following files are available in the templates folder:\n{file_list}\n\n"
-                "Select the files that are likely examples, templates, or prior versions of "
-                f'a "{doc_type}" document based on their filenames. '
-                "When in doubt, include rather than exclude. "
-                'Return JSON: {"selected": ["filename1", "filename2", ...]}'
+                f"Available files in the templates folder:\n{file_list}\n\n"
+                f'Choose the single file whose name most closely matches a "{doc_type}". '
+                "Consider abbreviations, version numbers, and partial name matches. "
+                'Return JSON: {"selected": "filename"}'
             ),
         },
     ], connection_id=connection_id)
-    return result.get("selected", [])
+    return result.get("selected", "")
 
 
 def discover_template_structure(template_texts: list, doc_type: str, connection_id: str = None) -> dict:
@@ -142,7 +141,15 @@ def generate_section(
             "role": "system",
             "content": (
                 "You are an expert technical writer for ISO 13485 regulated "
-                "software V&V documentation."
+                "software V&V documentation. "
+                "Format your response using the following conventions so it renders "
+                "correctly in Microsoft Word:\n"
+                "- Use ## for sub-headings\n"
+                "- Use - for bullet list items\n"
+                "- Use 1. 2. 3. for numbered list items\n"
+                "- Use **text** for bold\n"
+                "- Separate paragraphs with a blank line\n"
+                "Do not use any other markdown syntax."
             ),
         },
         {
@@ -155,31 +162,104 @@ def generate_section(
                 f"Project research:\n{json.dumps(research, indent=2)[:6000]}\n\n"
                 f"Style notes: {style}\n"
                 f"Regulatory language to use:\n{reg}\n\n"
-                "Write professional, complete prose. Do not repeat the section heading."
+                "Write professional, complete content. Do not repeat the section heading."
             ),
         },
     ], connection_id=connection_id)
 
 
 def assemble_docx(doc_type: str, sections: list) -> bytes:
+    import re
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Inches, Pt, RGBColor
 
     doc = Document()
-    title = doc.add_heading(doc_type, level=0)
-    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    meta = doc.add_paragraph(
-        f"Standard: ISO 13485  |  Generated: {datetime.now().strftime('%Y-%m-%d')}"
-    )
+
+    # Margins
+    for sec in doc.sections:
+        sec.top_margin    = Inches(1)
+        sec.bottom_margin = Inches(1)
+        sec.left_margin   = Inches(1.25)
+        sec.right_margin  = Inches(1.25)
+
+    # Cover
+    t = doc.add_heading(doc_type, level=0)
+    t.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    meta = doc.add_paragraph(f"Standard: ISO 13485  |  Generated: {datetime.now().strftime('%Y-%m-%d')}")
     meta.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    doc.add_paragraph()
+    for run in meta.runs:
+        run.font.color.rgb = RGBColor(0x64, 0x74, 0x8B)
+        run.font.size = Pt(10)
+
+    doc.add_page_break()
 
     for heading, content in sections:
         doc.add_heading(heading, level=1)
-        for block in content.split("\n\n"):
-            if block.strip():
-                doc.add_paragraph(block.strip())
+        _render_content(doc, content)
 
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()
+
+
+def _render_content(doc, content: str) -> None:
+    import re
+    lines = content.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        if not stripped:
+            i += 1
+            continue
+
+        if stripped.startswith("### "):
+            doc.add_heading(stripped[4:].strip(), level=3)
+            i += 1
+            continue
+
+        if stripped.startswith("## "):
+            doc.add_heading(stripped[3:].strip(), level=2)
+            i += 1
+            continue
+
+        if stripped.startswith("- ") or stripped.startswith("* "):
+            para = doc.add_paragraph(style="List Bullet")
+            _add_runs(para, stripped[2:])
+            i += 1
+            continue
+
+        if re.match(r"^\d+\.\s", stripped):
+            para = doc.add_paragraph(style="List Number")
+            _add_runs(para, re.sub(r"^\d+\.\s+", "", stripped))
+            i += 1
+            continue
+
+        # Regular paragraph — collect consecutive plain lines
+        block = []
+        while i < len(lines):
+            s = lines[i].strip()
+            if not s:
+                break
+            if s.startswith(("## ", "### ", "- ", "* ")) or re.match(r"^\d+\.\s", s):
+                break
+            block.append(s)
+            i += 1
+        if block:
+            para = doc.add_paragraph()
+            _add_runs(para, " ".join(block))
+
+
+def _add_runs(para, text: str) -> None:
+    import re
+    # Split on **bold** tokens
+    parts = re.split(r"(\*\*[^*]+\*\*)", text)
+    for part in parts:
+        if part.startswith("**") and part.endswith("**"):
+            run = para.add_run(part[2:-2])
+            run.bold = True
+        else:
+            para.add_run(part)

@@ -62,10 +62,10 @@ def run(
     selected = select_relevant_templates(all_filenames, doc_type, connection_id=conn)
     if not selected:
         raise ValueError(
-            f"The LLM found no relevant templates for '{doc_type}' among: {', '.join(all_filenames)}"
+            f"The LLM could not identify a template for '{doc_type}' among: {', '.join(all_filenames)}"
         )
-    print(f"      Selected {len(selected)} template(s): {', '.join(selected)}")
-    raw_templates = load_files_by_name(config.TEMPLATES_FOLDER, selected)
+    print(f"      Selected template: {selected}")
+    raw_templates = load_files_by_name(config.TEMPLATES_FOLDER, [selected])
     template_texts = [extract_text(fname, data) for fname, data in raw_templates]
 
     # ── Step 3: Deep research ─────────────────────────────────────────────────
