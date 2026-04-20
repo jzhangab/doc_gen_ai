@@ -31,29 +31,36 @@ def load_all_files(folder_id: str) -> list:
     return results
 
 
-def load_folder_templates(doc_type: str, folder_id: str = None) -> list:
-    """Return [(filename, bytes)] for all files under <doc_type>/ in the templates folder."""
-    fid = folder_id or config.TEMPLATES_FOLDER
+def list_folder_filenames(folder_id: str) -> list:
+    """Return all filenames (leaf names only) present in a managed folder."""
     try:
-        folder = _open_folder(fid)
+        folder = _open_folder(folder_id)
         paths = folder.list_paths_in_partition()
     except Exception as exc:
-        logger.warning("Cannot access folder '%s': %s", fid, exc)
+        logger.warning("Cannot access folder '%s': %s", folder_id, exc)
+        return []
+    return [path.lstrip("/").split("/")[-1] for path in paths if path.lstrip("/").split("/")[-1]]
+
+
+def load_files_by_name(folder_id: str, filenames: list) -> list:
+    """Return [(filename, bytes)] for the given filenames from a managed folder."""
+    try:
+        folder = _open_folder(folder_id)
+        all_paths = folder.list_paths_in_partition()
+    except Exception as exc:
+        logger.warning("Cannot access folder '%s': %s", folder_id, exc)
         return []
 
+    name_set = {f.lower() for f in filenames}
     results = []
-    prefix = doc_type + "/"
-    for path in paths:
-        norm = path.lstrip("/")
-        if norm.lower().startswith(prefix.lower()):
-            filename = norm.split("/", 1)[-1]
-            if not filename:
-                continue
+    for path in all_paths:
+        leaf = path.lstrip("/").split("/")[-1]
+        if leaf.lower() in name_set:
             try:
                 with folder.get_download_stream(path) as stream:
-                    results.append((filename, stream.read()))
+                    results.append((leaf, stream.read()))
             except Exception as exc:
-                logger.warning("Cannot read '%s' from '%s': %s", path, fid, exc)
+                logger.warning("Cannot read '%s' from '%s': %s", path, folder_id, exc)
     return results
 
 

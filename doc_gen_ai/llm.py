@@ -37,6 +37,32 @@ def _llm_json(messages: list, connection_id: str = None) -> dict:
     return json.loads(raw)
 
 
+def select_relevant_templates(filenames: list, doc_type: str, connection_id: str = None) -> list:
+    """Given a list of filenames, return those that are relevant templates for doc_type."""
+    file_list = "\n".join(f"- {f}" for f in filenames)
+    result = _llm_json([
+        {
+            "role": "system",
+            "content": (
+                "You are an expert in ISO 13485 software V&V documentation. "
+                "Return only valid JSON."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f'I need to generate a "{doc_type}" document.\n\n'
+                f"The following files are available in the templates folder:\n{file_list}\n\n"
+                "Select the files that are likely examples, templates, or prior versions of "
+                f'a "{doc_type}" document based on their filenames. '
+                "When in doubt, include rather than exclude. "
+                'Return JSON: {"selected": ["filename1", "filename2", ...]}'
+            ),
+        },
+    ], connection_id=connection_id)
+    return result.get("selected", [])
+
+
 def discover_template_structure(template_texts: list, doc_type: str, connection_id: str = None) -> dict:
     """Analyse example documents and extract section structure, style, and regulatory language."""
     combined = "\n\n---\n\n".join(

@@ -1,9 +1,12 @@
 from datetime import datetime
 
 from . import config
-from .llm import assemble_docx, deep_research, discover_template_structure, generate_section
+from .llm import (
+    assemble_docx, deep_research, discover_template_structure,
+    generate_section, select_relevant_templates,
+)
 from .parsing import extract_text
-from .storage import load_all_files, load_folder_templates, save_file
+from .storage import list_folder_filenames, load_all_files, load_files_by_name, save_file
 
 
 def run(
@@ -47,15 +50,22 @@ def run(
     print(f"      {len(raw_docs)} file(s): {', '.join(n for n, _ in raw_docs)}")
     doc_texts = [extract_text(fname, data) for fname, data in raw_docs]
 
-    # ── Step 2: Load template examples ───────────────────────────────────────
-    print(f"[2/5] Loading templates from '{config.TEMPLATES_FOLDER}/{doc_type}'…")
-    raw_templates = load_folder_templates(doc_type)
-    if not raw_templates:
+    # ── Step 2: Discover relevant templates ──────────────────────────────────
+    print(f"[2/5] Discovering templates for '{doc_type}' in '{config.TEMPLATES_FOLDER}'…")
+    all_filenames = list_folder_filenames(config.TEMPLATES_FOLDER)
+    if not all_filenames:
         raise ValueError(
-            f"No templates found under '{doc_type}/' in managed folder '{config.TEMPLATES_FOLDER}'. "
-            "Add at least one example document to that subfolder."
+            f"Managed folder '{config.TEMPLATES_FOLDER}' is empty or inaccessible. "
+            "Upload template documents there first."
         )
-    print(f"      {len(raw_templates)} template(s): {', '.join(n for n, _ in raw_templates)}")
+    print(f"      {len(all_filenames)} file(s) available: {', '.join(all_filenames)}")
+    selected = select_relevant_templates(all_filenames, doc_type, connection_id=conn)
+    if not selected:
+        raise ValueError(
+            f"The LLM found no relevant templates for '{doc_type}' among: {', '.join(all_filenames)}"
+        )
+    print(f"      Selected {len(selected)} template(s): {', '.join(selected)}")
+    raw_templates = load_files_by_name(config.TEMPLATES_FOLDER, selected)
     template_texts = [extract_text(fname, data) for fname, data in raw_templates]
 
     # ── Step 3: Deep research ─────────────────────────────────────────────────
