@@ -229,6 +229,48 @@ def critique_document(doc_type: str, sections: list, connection_id: str = None) 
     return result.get("issues", [])
 
 
+def deduplicate_sections(doc_type: str, sections: list, connection_id: str = None) -> list:
+    """Final deduplication pass: returns sections with redundant entries removed.
+
+    Asks the LLM which section indices to drop, then filters the list.
+    """
+    if len(sections) <= 1:
+        return sections
+
+    overview = "\n\n".join(
+        f"[{i}] {h}\n{c[:800]}{'…' if len(c) > 800 else ''}"
+        for i, (h, c) in enumerate(sections)
+    )
+    result = _llm_json([
+        {
+            "role": "system",
+            "content": (
+                "You are a document editor. "
+                "Your only job is to identify redundant sections. "
+                "Return only valid JSON."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f'These are the {len(sections)} sections of a "{doc_type}" document '
+                f"(index: heading + content preview):\n\n"
+                f"{overview}\n\n"
+                "Identify every section whose content is substantially duplicated by, "
+                "or fully contained within, another section. "
+                "When two sections overlap, keep the one that is more complete or "
+                "better positioned in the document; mark the other for removal.\n\n"
+                "Return the indices to REMOVE as a JSON list. "
+                "Return an empty list if nothing is redundant:\n"
+                '{"remove": [2, 5]}'
+            ),
+        },
+    ], connection_id=connection_id)
+
+    to_remove = set(result.get("remove", []))
+    return [(h, c) for i, (h, c) in enumerate(sections) if i not in to_remove]
+
+
 def fix_section_content(
     doc_type: str, heading: str, content: str, issue: str, connection_id: str = None
 ) -> str:

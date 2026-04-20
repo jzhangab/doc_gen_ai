@@ -2,7 +2,7 @@ from datetime import datetime
 
 from . import config
 from .llm import (
-    assemble_docx, critique_document, deep_research,
+    assemble_docx, critique_document, deduplicate_sections, deep_research,
     discover_template_structure, fix_section_content,
     generate_section, select_relevant_templates,
 )
@@ -84,14 +84,14 @@ def run(
     print(f"      {len(sections)} section(s) identified")
 
     # ── Step 5: Generate sections and assemble ────────────────────────────────
-    print(f"[5/5] Generating {len(sections)} section(s)…")
+    print(f"[5/6] Generating {len(sections)} section(s)…")
     sections_out = []
     for i, section in enumerate(sections, 1):
         print(f"      [{i}/{len(sections)}] {section['heading']}")
         content = generate_section(doc_type, section, research, style, reg_lang, connection_id=conn)
         sections_out.append((section["heading"], content))
 
-    # ── Step 6: Critique and fix ──────────────────────────────────────────────
+    # ── Step 6: Critique, fix, and deduplicate ───────────────────────────────
     print("[6/6] Critiquing document…")
 
     # Remove structural duplicates (same heading) before LLM critique
@@ -124,6 +124,17 @@ def run(
             sections_out[idx] = (heading, fixed)
     else:
         print("      No issues found.")
+
+    # Final deduplication pass — remove any remaining redundant sections
+    print("      Final deduplication pass…")
+    before = len(sections_out)
+    sections_out = deduplicate_sections(doc_type, sections_out, connection_id=conn)
+    removed = before - len(sections_out)
+    if removed:
+        print(f"      Removed {removed} redundant section(s). "
+              f"{len(sections_out)} section(s) remain.")
+    else:
+        print(f"      No redundant sections found.")
 
     print("      Assembling Word document…")
     docx_bytes = assemble_docx(doc_type, sections_out)
