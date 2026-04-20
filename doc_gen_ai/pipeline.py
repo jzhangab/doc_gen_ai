@@ -108,9 +108,16 @@ def run(
 
     issues = critique_document(doc_type, sections_out, connection_id=conn)
 
-    if issues:
-        print(f"      {len(issues)} issue(s) found — fixing…")
-        for issue in issues:
+    # Duplicate-type issues are intentionally skipped here — the dedup pass
+    # below removes them outright. Fixing duplicate content risks regenerating
+    # it with slightly different wording, which re-introduces the problem.
+    fixable = [i for i in issues if i.get("type") != "duplicate"]
+
+    if fixable:
+        print(f"      {len(fixable)} fixable issue(s) found — fixing…")
+        if len(issues) > len(fixable):
+            print(f"      {len(issues) - len(fixable)} duplicate issue(s) deferred to dedup pass.")
+        for issue in fixable:
             idx = issue.get("index")
             if idx is None or not (0 <= idx < len(sections_out)):
                 continue
@@ -118,12 +125,14 @@ def run(
             desc = issue.get("description", "")
             itype = issue.get("type", "")
             print(f"      [{itype}] '{heading}': {desc}")
+            other_headings = [h for j, (h, _) in enumerate(sections_out) if j != idx]
             fixed = fix_section_content(
-                doc_type, heading, content, desc, connection_id=conn
+                doc_type, heading, content, desc,
+                other_headings=other_headings, connection_id=conn,
             )
             sections_out[idx] = (heading, fixed)
     else:
-        print("      No issues found.")
+        print("      No fixable issues found.")
 
     # Final deduplication pass — remove any remaining redundant sections
     print("      Final deduplication pass…")

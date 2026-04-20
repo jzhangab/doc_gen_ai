@@ -272,9 +272,21 @@ def deduplicate_sections(doc_type: str, sections: list, connection_id: str = Non
 
 
 def fix_section_content(
-    doc_type: str, heading: str, content: str, issue: str, connection_id: str = None
+    doc_type: str, heading: str, content: str, issue: str,
+    other_headings: list = None, connection_id: str = None,
 ) -> str:
-    """Rewrite a section to address a specific quality issue."""
+    """Rewrite a section to address a specific quality issue.
+
+    other_headings lists the headings of every other section in the document
+    so the fixer does not introduce content that duplicates those sections.
+    """
+    scope_note = ""
+    if other_headings:
+        scope_note = (
+            "\n\nIMPORTANT — the following sections already exist in this document. "
+            "Do NOT duplicate their content here; keep this section strictly within its own scope:\n"
+            + "\n".join(f"- {h}" for h in other_headings)
+        )
     return _llm_call([
         {
             "role": "system",
@@ -296,7 +308,8 @@ def fix_section_content(
             "content": (
                 f'Fix the "{heading}" section of a "{doc_type}" document.\n\n'
                 f"Issue: {issue}\n\n"
-                f"Current content:\n{content}\n\n"
+                f"Current content:\n{content}"
+                f"{scope_note}\n\n"
                 "Return the corrected content only. Do not repeat the section heading."
             ),
         },
