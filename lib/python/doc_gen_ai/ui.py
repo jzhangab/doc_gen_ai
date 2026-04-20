@@ -11,6 +11,7 @@ from IPython.display import HTML, Javascript, clear_output, display
 from . import config
 from .parsing import _get_uploaded_files, extract_text
 from .llm import _discover_template, _research_inputs, _generate_section, _assemble_docx
+from .storage import load_folder_templates
 
 logger = logging.getLogger(__name__)
 
@@ -165,21 +166,24 @@ def _file_emoji(name):
             "xlsx": "📗", "xls": "📗", "pptx": "📙", "ppt": "📙"}.get(ext, "📄")
 
 
-def launch_app(llm_connection_id: str = None, serp_api_key: str = None):
+def launch_app(llm_connection_id: str = None, serp_api_key: str = None, managed_folder_id: str = None):
     """Build and display the V&V Document Generator UI.
 
     Args:
         llm_connection_id: Dataiku LLM Mesh connection ID. Falls back to config default.
         serp_api_key: SerpAPI key for web search augmentation.
+        managed_folder_id: Dataiku managed folder containing doc type template subfolders.
+                           Falls back to config default ("doc_templates").
     """
     if llm_connection_id:
         config.DEFAULT_LLM_CONNECTION_ID = llm_connection_id
     if serp_api_key:
         config.SERP_API_KEY = serp_api_key
+    if managed_folder_id:
+        config.MANAGED_FOLDER_ID = managed_folder_id
 
     _state = {
         "input_files": {},
-        "template_files": {},
         "jobs": {},
     }
     _lock = threading.Lock()
@@ -188,14 +192,13 @@ def launch_app(llm_connection_id: str = None, serp_api_key: str = None):
     UPLOAD_BTN  = widgets.Layout(width="100%", margin="4px 0")
     OUTPUT_AREA = widgets.Layout(width="100%", min_height="40px")
 
-    out_input_files    = widgets.Output(layout=OUTPUT_AREA)
-    out_template_files = widgets.Output(layout=OUTPUT_AREA)
-    out_jobs           = widgets.Output(layout=OUTPUT_AREA)
+    out_input_files = widgets.Output(layout=OUTPUT_AREA)
+    out_jobs        = widgets.Output(layout=OUTPUT_AREA)
 
     # ── File list renderer ────────────────────────────────────────────────────
 
     def _render_file_list(file_type: str):
-        out = out_input_files if file_type == "input" else out_template_files
+        out = out_input_files
         with _lock:
             files = dict(_state[f"{file_type}_files"])
 
@@ -310,13 +313,12 @@ def launch_app(llm_connection_id: str = None, serp_api_key: str = None):
 
     def _update_generate_btn():
         with _lock:
-            has_input    = bool(_state["input_files"])
-            has_template = bool(_state["template_files"])
-        btn_generate.disabled = not (has_input and has_template and w_doc_type.value)
+            has_input = bool(_state["input_files"])
+        btn_generate.disabled = not (has_input and w_doc_type.value)
 
     # ── File upload handler ───────────────────────────────────────────────────
 
-    def _handle_upload(upload_widget, file_type: str, status_out: widgets.Output):
+    def _handle_upload(upload_widget, status_out: widgets.Output):
         files = _get_uploaded_files(upload_widget)
         if not files:
             return
@@ -329,7 +331,7 @@ def launch_app(llm_connection_id: str = None, serp_api_key: str = None):
             if f["content_bytes"]:
                 fid = str(uuid.uuid4())
                 with _lock:
-                    _state[f"{file_type}_files"][fid] = {
+                    _state["input_files"][fid] = {
                         "name": f["name"],
                         "content_bytes": f["content_bytes"],
                     }
@@ -340,7 +342,7 @@ def launch_app(llm_connection_id: str = None, serp_api_key: str = None):
             if added:
                 display(HTML(f'<span style="color:#16a34a;font-size:12px">✓ {added} file(s) added</span>'))
 
-        _render_file_list(file_type)
+        _render_file_list("input")
         _update_generate_btn()
         upload_widget.value = {} if isinstance(upload_widget.value, dict) else ()
 
@@ -355,11 +357,18 @@ def launch_app(llm_connection_id: str = None, serp_api_key: str = None):
         try:
             _set("running", progress="Extracting text from input documents…")
             with _lock:
-                input_files    = list(_state["input_files"].values())
-                template_files = list(_state["template_files"].values())
+                input_files = list(_state["input_files"].values())
 
-            input_texts    = [extract_text(f["name"], f["content_bytes"]) for f in input_files]
-            template_texts = [extract_text(f["name"], f["content_bytes"]) for f in template_files]
+            input_texts = [extract_text(f["name"], f["content_bytes"]) for f in input_files]
+
+            _set("running", progress=f"Loading templates from '{config.MANAGED_FOLDER_ID}/{doc_type}'…")
+            raw_templates = load_folder_templates(doc_type)
+            if not raw_templates:
+                raise ValueError(
+                    f"No template files found under '{doc_type}/' in managed folder '{config.MANAGED_FOLDER_ID}'. "
+                    "Upload at least one example document to that subfolder before generating."
+                )
+            template_texts = [extract_text(fname, fbytes) for fname, fbytes in raw_templates]
 
             _set("running", progress="Analysing template documents…")
             structure = _discover_template(template_texts, doc_type, connection_id=connection_id)
@@ -400,22 +409,9 @@ def launch_app(llm_connection_id: str = None, serp_api_key: str = None):
     out_input_status = widgets.Output()
 
     def _on_input_upload(change):
-        _handle_upload(w_input_upload, "input", out_input_status)
+        _handle_upload(w_input_upload, out_input_status)
 
     w_input_upload.observe(_on_input_upload, names="value")
-
-    w_template_upload = widgets.FileUpload(
-        accept=".docx,.doc,.pdf,.xlsx,.xls,.pptx,.ppt",
-        multiple=True,
-        description="Add Files",
-        layout=UPLOAD_BTN,
-    )
-    out_template_status = widgets.Output()
-
-    def _on_template_upload(change):
-        _handle_upload(w_template_upload, "template", out_template_status)
-
-    w_template_upload.observe(_on_template_upload, names="value")
 
     w_doc_type = widgets.Dropdown(
         options=[""] + config.DOC_TYPES,
@@ -484,7 +480,7 @@ def launch_app(llm_connection_id: str = None, serp_api_key: str = None):
     # ── Layout assembly ───────────────────────────────────────────────────────
 
     left_panel = widgets.VBox([
-        widgets.HTML('<p class="dg-section-title">1. Upload Documents</p>'),
+        widgets.HTML('<p class="dg-section-title">1. Upload Input Documents</p>'),
         widgets.HTML(
             '<p class="dg-upload-label">Input Documents'
             '<span class="dg-badge dg-badge-blue">Source files</span></p>'
@@ -495,13 +491,10 @@ def launch_app(llm_connection_id: str = None, serp_api_key: str = None):
         out_input_files,
         widgets.HTML('<hr class="dg-divider">'),
         widgets.HTML(
-            '<p class="dg-upload-label">Template Examples'
-            '<span class="dg-badge dg-badge-purple">Reference docs</span></p>'
-            '<p class="dg-hint">Example documents showing the desired format and style</p>'
+            f'<p class="dg-upload-label">Templates'
+            f'<span class="dg-badge dg-badge-purple">Managed folder</span></p>'
+            f'<p class="dg-hint">Loaded automatically from <code>{config.MANAGED_FOLDER_ID}/&lt;Doc Type&gt;/</code></p>'
         ),
-        w_template_upload,
-        out_template_status,
-        out_template_files,
     ], layout=widgets.Layout(width="50%", padding="0 10px 0 0"))
 
     right_panel = widgets.VBox([
@@ -544,7 +537,6 @@ def launch_app(llm_connection_id: str = None, serp_api_key: str = None):
     ], layout=widgets.Layout(width="100%", max_width="1200px"))
 
     _render_file_list("input")
-    _render_file_list("template")
     _render_jobs()
 
     display(HTML(_CSS))

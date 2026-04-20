@@ -22,6 +22,13 @@ LLM_CONNECTION_ID = ""
 # SerpAPI key for web search augmentation. Leave as "" to disable.
 SERP_API_KEY = ""
 
+# Dataiku managed folder containing one subfolder per doc type with example
+# documents. Each subfolder must be named exactly after the doc type, e.g.:
+#   doc_templates/Administration Guide/example.docx
+#   doc_templates/User Guide/template.pdf
+# Leave as "" to use the library default: "doc_templates"
+MANAGED_FOLDER_ID = ""
+
 print("✓ Cell 1 complete — configuration set")
 
 
@@ -34,4 +41,5 @@ from doc_gen_ai import launch_app
 launch_app(
     llm_connection_id=LLM_CONNECTION_ID or None,
     serp_api_key=SERP_API_KEY or None,
+    managed_folder_id=MANAGED_FOLDER_ID or None,
 )
