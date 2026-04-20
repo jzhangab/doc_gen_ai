@@ -142,13 +142,16 @@ def generate_section(
             "content": (
                 "You are an expert technical writer for ISO 13485 regulated "
                 "software V&V documentation. "
-                "Format your response using these conventions so it renders correctly "
-                "in Microsoft Word:\n"
+                "Write in flowing professional prose as the default. "
+                "Formatting rules for Microsoft Word rendering:\n"
+                "- PARAGRAPHS are the default. Explain, describe, and justify in full sentences.\n"
+                "- Use bullet lists ONLY when items are genuinely enumerable with no natural prose "
+                "flow — e.g. a set of 4+ parallel, discrete items. Never convert a sentence into "
+                "a bullet just to break it up.\n"
+                "- Use numbered lists ONLY for sequential steps or ranked items.\n"
                 "- Use ## for sub-headings, ### for sub-sub-headings\n"
-                "- Use - for bullet list items\n"
-                "- Use 1. 2. 3. for numbered list items\n"
                 "- Use **text** for bold\n"
-                "- For tables use markdown pipe syntax: | Col1 | Col2 |\\n|---|---|\\n| val | val |\n"
+                "- Use pipe syntax for tables: | Col1 | Col2 |\\n|---|---|\\n| val | val |\n"
                 "- Separate paragraphs and blocks with a blank line\n"
                 "Do not use any other markdown syntax."
             ),
@@ -216,8 +219,11 @@ def fix_section_content(
             "content": (
                 "You are an expert technical writer for ISO 13485 V&V documentation. "
                 "Fix the provided section content according to the issue described. "
-                "Format using: ## sub-headings, - bullets, 1. numbered lists, "
-                "**bold**, pipe tables. Return only the corrected section content."
+                "Write in flowing professional prose as the default. "
+                "Use bullet lists only for genuinely enumerable parallel items (4+), "
+                "numbered lists only for sequential steps. "
+                "Format using: ## sub-headings, **bold**, pipe tables. "
+                "Return only the corrected section content."
             ),
         },
         {
