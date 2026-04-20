@@ -169,6 +169,69 @@ def generate_section(
     ], connection_id=connection_id)
 
 
+def critique_document(doc_type: str, sections: list, connection_id: str = None) -> list:
+    """Scan all sections and return a list of issues to fix.
+
+    Each issue: {index, heading, type, description}
+    type: "duplicate" | "formatting" | "incomplete"
+    """
+    overview = "\n\n".join(
+        f"[Section {i+1}: {h}]\n{c[:600]}{'…' if len(c) > 600 else ''}"
+        for i, (h, c) in enumerate(sections)
+    )
+    result = _llm_json([
+        {
+            "role": "system",
+            "content": (
+                "You are a strict document quality reviewer for ISO 13485 V&V documentation. "
+                "Identify quality issues in document sections. Return only valid JSON."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f'Review these sections of a "{doc_type}" document for quality issues.\n\n'
+                f"{overview}\n\n"
+                "Identify:\n"
+                "1. Sections whose content substantially duplicates another section\n"
+                "2. Sections with broken or inconsistent formatting "
+                "(e.g. raw markdown symbols visible as text, mismatched list styles)\n"
+                "3. Sections that are incomplete, generic, or placeholder-only\n\n"
+                "Return JSON — empty list if no issues:\n"
+                '{"issues": [{"index": 0, "heading": "...", '
+                '"type": "duplicate|formatting|incomplete", "description": "..."}]}'
+            ),
+        },
+    ], connection_id=connection_id)
+    return result.get("issues", [])
+
+
+def fix_section_content(
+    doc_type: str, heading: str, content: str, issue: str, connection_id: str = None
+) -> str:
+    """Rewrite a section to address a specific quality issue."""
+    return _llm_call([
+        {
+            "role": "system",
+            "content": (
+                "You are an expert technical writer for ISO 13485 V&V documentation. "
+                "Fix the provided section content according to the issue described. "
+                "Format using: ## sub-headings, - bullets, 1. numbered lists, "
+                "**bold**, pipe tables. Return only the corrected section content."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f'Fix the "{heading}" section of a "{doc_type}" document.\n\n'
+                f"Issue: {issue}\n\n"
+                f"Current content:\n{content}\n\n"
+                "Return the corrected content only. Do not repeat the section heading."
+            ),
+        },
+    ], connection_id=connection_id)
+
+
 _TOC_SECTION_NAMES = {"table of contents", "contents", "toc"}
 
 

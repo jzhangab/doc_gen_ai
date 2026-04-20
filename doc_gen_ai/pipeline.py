@@ -2,7 +2,8 @@ from datetime import datetime
 
 from . import config
 from .llm import (
-    assemble_docx, deep_research, discover_template_structure,
+    assemble_docx, critique_document, deep_research,
+    discover_template_structure, fix_section_content,
     generate_section, select_relevant_templates,
 )
 from .parsing import extract_text
@@ -89,6 +90,40 @@ def run(
         print(f"      [{i}/{len(sections)}] {section['heading']}")
         content = generate_section(doc_type, section, research, style, reg_lang, connection_id=conn)
         sections_out.append((section["heading"], content))
+
+    # ── Step 6: Critique and fix ──────────────────────────────────────────────
+    print("[6/6] Critiquing document…")
+
+    # Remove structural duplicates (same heading) before LLM critique
+    seen_headings: set = set()
+    deduped: list = []
+    for heading, content in sections_out:
+        key = heading.strip().lower()
+        if key in seen_headings:
+            print(f"      Removed duplicate section: '{heading}'")
+        else:
+            seen_headings.add(key)
+            deduped.append((heading, content))
+    sections_out = deduped
+
+    issues = critique_document(doc_type, sections_out, connection_id=conn)
+
+    if issues:
+        print(f"      {len(issues)} issue(s) found — fixing…")
+        for issue in issues:
+            idx = issue.get("index")
+            if idx is None or not (0 <= idx < len(sections_out)):
+                continue
+            heading, content = sections_out[idx]
+            desc = issue.get("description", "")
+            itype = issue.get("type", "")
+            print(f"      [{itype}] '{heading}': {desc}")
+            fixed = fix_section_content(
+                doc_type, heading, content, desc, connection_id=conn
+            )
+            sections_out[idx] = (heading, fixed)
+    else:
+        print("      No issues found.")
 
     print("      Assembling Word document…")
     docx_bytes = assemble_docx(doc_type, sections_out)
