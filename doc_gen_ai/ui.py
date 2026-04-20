@@ -536,8 +536,7 @@ def launch_app(llm_connection_id: str = None, serp_api_key: str = None, managed_
         ),
     ], layout=widgets.Layout(width="100%", max_width="1200px"))
 
-    _render_file_list("input")
-    _render_jobs()
-
     display(HTML(_CSS))
     display(app)
+    _render_file_list("input")
+    _render_jobs()
