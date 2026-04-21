@@ -225,12 +225,17 @@ def run_gdp_check(
 
 
 def _display_download_link(filename: str, folder_name: str) -> None:
-    url = get_file_url(folder_name, filename)
+    path = get_file_url(folder_name, filename)  # returns /dip/api/... relative path
     try:
         from IPython.display import HTML, display
-        if url:
+        if path:
+            # window.top.location.origin resolves the true browser-facing origin,
+            # bypassing the internal Dataiku address that relative URLs resolve to
+            # when notebook output is rendered inside an iframe.
+            js_url = f"window.top.location.origin + '{path}'"
             display(HTML(
-                f'<a href="{url}" target="_blank" '
+                f'<a href="#" '
+                f'onclick="window.open({js_url}, \'_blank\'); return false;" '
                 f'style="display:inline-block;margin-top:8px;padding:8px 16px;'
                 f'background:#2563eb;color:#fff;border-radius:6px;'
                 f'text-decoration:none;font-family:sans-serif;font-size:13px;">'
@@ -242,7 +247,7 @@ def _display_download_link(filename: str, folder_name: str) -> None:
                 f'Saved: {filename} (open the {folder_name} folder to download)</span>'
             ))
     except Exception:
-        if url:
-            print(f"Download: {url}")
+        if path:
+            print(f"Download path: {path}")
         else:
             print(f"Saved: {filename}")
