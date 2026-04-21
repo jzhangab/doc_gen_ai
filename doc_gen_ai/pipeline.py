@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 
 from . import config
@@ -8,6 +9,19 @@ from .llm import (
 )
 from .parsing import extract_text
 from .storage import get_file_url, list_folder_filenames, load_all_files, load_files_by_name, save_file
+
+
+def _normalize_heading(h: str) -> str:
+    """Return a canonical form of a heading for duplicate detection.
+
+    Strips leading section numbers, punctuation, and lowercases so that
+    headings like '1. Scope', 'Document Scope', and 'scope' all collapse
+    to the same key.
+    """
+    h = re.sub(r'^[\d\.]+\s*', '', h.strip())          # strip leading numbers
+    h = re.sub(r'\bdocument\b', '', h, flags=re.I)      # strip common filler word
+    h = re.sub(r'[^\w\s]', '', h)                       # strip punctuation
+    return re.sub(r'\s+', ' ', h.lower()).strip()
 
 
 def run(
@@ -98,6 +112,21 @@ def run(
     reg_lang = structure.get("regulatory_language", [])
     print(f"      {len(sections)} section(s) identified")
 
+    # Pre-generation dedup: drop template sections whose normalised headings collide
+    seen_pre: dict = {}
+    unique_sections = []
+    for sec in sections:
+        key = _normalize_heading(sec["heading"])
+        if key in seen_pre:
+            print(f"      Merged near-duplicate template section '{sec['heading']}' → '{seen_pre[key]}'")
+        else:
+            seen_pre[key] = sec["heading"]
+            unique_sections.append(sec)
+    if len(unique_sections) < len(sections):
+        print(f"      {len(sections) - len(unique_sections)} template section(s) merged; "
+              f"{len(unique_sections)} unique section(s) remain.")
+    sections = unique_sections
+
     # ── Step 6: Generate sections and assemble ────────────────────────────────
     print(f"[6/7] Generating {len(sections)} section(s)…")
     sections_out = []
@@ -112,23 +141,20 @@ def run(
     # ── Step 7: Critique, fix, and deduplicate ───────────────────────────────
     print("[7/7] Critiquing document…")
 
-    # Remove structural duplicates (same heading) before LLM critique
-    seen_headings: set = set()
+    # Pass 1: hard Python dedup on normalised headings
+    seen_headings: dict = {}
     deduped: list = []
     for heading, content in sections_out:
-        key = heading.strip().lower()
+        key = _normalize_heading(heading)
         if key in seen_headings:
-            print(f"      Removed duplicate section: '{heading}'")
+            print(f"      Removed duplicate heading: '{heading}' (matches '{seen_headings[key]}')")
         else:
-            seen_headings.add(key)
+            seen_headings[key] = heading
             deduped.append((heading, content))
     sections_out = deduped
 
+    # Pass 2: LLM critique — fix formatting/incomplete/GDP issues; defer duplicates to dedup
     issues = critique_document(doc_type, sections_out, connection_id=conn)
-
-    # Duplicate-type issues are intentionally skipped here — the dedup pass
-    # below removes them outright. Fixing duplicate content risks regenerating
-    # it with slightly different wording, which re-introduces the problem.
     fixable = [i for i in issues if i.get("type") != "duplicate"]
 
     if fixable:
@@ -152,16 +178,30 @@ def run(
     else:
         print("      No fixable issues found.")
 
-    # Final deduplication pass — remove any remaining redundant sections
-    print("      Final deduplication pass…")
-    before = len(sections_out)
-    sections_out = deduplicate_sections(doc_type, sections_out, connection_id=conn)
-    removed = before - len(sections_out)
-    if removed:
-        print(f"      Removed {removed} redundant section(s). "
-              f"{len(sections_out)} section(s) remain.")
-    else:
-        print(f"      No redundant sections found.")
+    # Pass 3: LLM dedup — run until convergence (max 3 iterations)
+    print("      Deduplication pass…")
+    for pass_num in range(1, 4):
+        before = len(sections_out)
+        sections_out = deduplicate_sections(doc_type, sections_out, connection_id=conn)
+        removed = before - len(sections_out)
+        if removed:
+            print(f"      Pass {pass_num}: removed {removed} redundant section(s), "
+                  f"{len(sections_out)} remain.")
+        else:
+            print(f"      Pass {pass_num}: no redundant sections found.")
+            break
+
+    # Pass 4: final hard Python dedup by normalised heading (catches anything the LLM missed)
+    seen_final: dict = {}
+    final_sections: list = []
+    for heading, content in sections_out:
+        key = _normalize_heading(heading)
+        if key in seen_final:
+            print(f"      Final pass removed: '{heading}' (matches '{seen_final[key]}')")
+        else:
+            seen_final[key] = heading
+            final_sections.append((heading, content))
+    sections_out = final_sections
 
     print("      Assembling Word document…")
     docx_bytes = assemble_docx(doc_type, sections_out)

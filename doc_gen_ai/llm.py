@@ -156,6 +156,10 @@ def discover_template_structure(template_texts: list, doc_type: str, connection_
             "content": (
                 f'Analyse these example "{doc_type}" documents and extract their structure.\n\n'
                 f"{combined}\n\n"
+                "Rules for the sections list:\n"
+                "- Each section heading must be unique — no two entries may cover the same topic.\n"
+                "- If the template has overlapping or near-duplicate sections, merge them into one.\n"
+                "- Do not include a Table of Contents section.\n\n"
                 "Return JSON:\n"
                 '{"sections":[{"heading":"...","description":"...","required_elements":["..."]}],'
                 '"style_notes":"...","regulatory_language":["..."]}'
@@ -361,30 +365,30 @@ def deduplicate_sections(doc_type: str, sections: list, connection_id: str = Non
         return sections
 
     overview = "\n\n".join(
-        f"[{i}] {h}\n{c[:800]}{'…' if len(c) > 800 else ''}"
+        f"[{i}] {h}\n{c[:1500]}{'…' if len(c) > 1500 else ''}"
         for i, (h, c) in enumerate(sections)
     )
     result = _llm_json([
         {
             "role": "system",
             "content": (
-                "You are a document editor. "
-                "Your only job is to identify redundant sections. "
-                "Return only valid JSON."
+                "You are a document editor whose only job is to eliminate redundancy. "
+                "Be aggressive: when in doubt, remove. Return only valid JSON."
             ),
         },
         {
             "role": "user",
             "content": (
-                f'These are the {len(sections)} sections of a "{doc_type}" document '
-                f"(index: heading + content preview):\n\n"
+                f'These are the {len(sections)} sections of a "{doc_type}" document:\n\n'
                 f"{overview}\n\n"
-                "Identify every section whose content is substantially duplicated by, "
-                "or fully contained within, another section. "
-                "When two sections overlap, keep the one that is more complete or "
-                "better positioned in the document; mark the other for removal.\n\n"
-                "Return the indices to REMOVE as a JSON list. "
-                "Return an empty list if nothing is redundant:\n"
+                "Mark a section for removal if ANY of the following are true:\n"
+                "1. Its heading is semantically equivalent to another section's heading "
+                "(e.g. 'Scope' and 'Document Scope', 'Overview' and 'Introduction').\n"
+                "2. Its content substantially overlaps with or is contained within another section.\n"
+                "3. It repeats information already present elsewhere in the document.\n\n"
+                "When two sections overlap, keep the one that is more complete or better positioned; "
+                "mark the other for removal. When in doubt, remove.\n\n"
+                "Return ONLY the integer indices to remove. Empty list if nothing to remove:\n"
                 '{"remove": [2, 5]}'
             ),
         },
