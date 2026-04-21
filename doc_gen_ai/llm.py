@@ -450,6 +450,8 @@ _TOC_SECTION_NAMES = {"table of contents", "contents", "toc"}
 def assemble_docx(doc_type: str, sections: list) -> bytes:
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
     from docx.shared import Inches, Pt, RGBColor
 
     doc = Document()
@@ -474,20 +476,56 @@ def assemble_docx(doc_type: str, sections: list) -> bytes:
 
     doc.add_page_break()
 
-    # ── Table of Contents (pre-populated from section headings) ──────────────
+    # ── Table of Contents ─────────────────────────────────────────────────────
     doc.add_heading("Table of Contents", level=1)
 
     visible_sections = [
         (i, h, c) for i, (h, c) in enumerate(sections, 1)
         if h.strip().lower() not in _TOC_SECTION_NAMES
     ]
-    for num, heading, _ in visible_sections:
-        para = doc.add_paragraph(style="Normal")
-        para.paragraph_format.space_after = Pt(2)
-        run_num = para.add_run(f"{num}. ")
-        run_num.bold = True
-        para.add_run(heading)
 
+    toc_table = doc.add_table(rows=1 + len(visible_sections), cols=2)
+    toc_table.style = "Table Grid"
+
+    # Column widths: narrow number col, wide heading col
+    for row in toc_table.rows:
+        row.cells[0].width = Inches(0.55)
+        row.cells[1].width = Inches(5.2)
+
+    # Header row
+    hdr_cells = toc_table.rows[0].cells
+    for cell, text in zip(hdr_cells, ("#", "Section")):
+        cell.text = text
+        for para in cell.paragraphs:
+            para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            for run in para.runs:
+                run.bold = True
+                run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        # Dark blue fill
+        tc_pr = cell._tc.get_or_add_tcPr()
+        shd = OxmlElement("w:shd")
+        shd.set(qn("w:val"), "clear")
+        shd.set(qn("w:color"), "auto")
+        shd.set(qn("w:fill"), "1E3A5F")
+        tc_pr.append(shd)
+
+    # Data rows
+    for row_idx, (num, heading, _) in enumerate(visible_sections, 1):
+        cells = toc_table.rows[row_idx].cells
+        cells[0].text = str(num)
+        cells[1].text = heading
+        cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        # Alternating light blue tint on even rows
+        if row_idx % 2 == 0:
+            for cell in cells:
+                tc_pr = cell._tc.get_or_add_tcPr()
+                shd = OxmlElement("w:shd")
+                shd.set(qn("w:val"), "clear")
+                shd.set(qn("w:color"), "auto")
+                shd.set(qn("w:fill"), "EBF2FA")
+                tc_pr.append(shd)
+
+    doc.add_paragraph()  # spacing after table
     doc.add_page_break()
 
     # ── Sections (skip any TOC section returned by the LLM) ──────────────────
