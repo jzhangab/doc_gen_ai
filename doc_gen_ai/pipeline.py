@@ -4,7 +4,7 @@ from . import config
 from .llm import (
     assemble_docx, critique_document, deduplicate_sections, deep_research,
     discover_template_structure, extract_writing_context, fix_section_content,
-    generate_section, select_relevant_templates,
+    gdp_check, generate_section, select_relevant_templates,
 )
 from .parsing import extract_text
 from .storage import get_file_url, list_folder_filenames, load_all_files, load_files_by_name, save_file
@@ -175,6 +175,53 @@ def run(
     _display_download_link(filename, config.OUTPUT_FOLDER)
 
     return docx_bytes
+
+
+def run_gdp_check(
+    gdp_check_folder: str = None,
+    connection_id: str = None,
+) -> list:
+    """Run a GDP audit on all documents in gdp_check_folder.
+
+    Prints a formatted report and returns the raw issues list.
+    """
+    if connection_id:
+        config.DEFAULT_LLM_CONNECTION_ID = connection_id
+    if gdp_check_folder:
+        config.GDP_CHECK_FOLDER = gdp_check_folder
+
+    conn = config.DEFAULT_LLM_CONNECTION_ID
+
+    print(f"Loading documents from '{config.GDP_CHECK_FOLDER}'…")
+    raw_docs = load_all_files(config.GDP_CHECK_FOLDER)
+    if not raw_docs:
+        raise ValueError(
+            f"No documents found in managed folder '{config.GDP_CHECK_FOLDER}'. "
+            "Upload documents to audit there first."
+        )
+    filenames = [n for n, _ in raw_docs]
+    print(f"  {len(raw_docs)} file(s): {', '.join(filenames)}")
+
+    doc_texts = [extract_text(fname, data) for fname, data in raw_docs]
+
+    print("Running GDP audit…")
+    issues = gdp_check(doc_texts, connection_id=conn)
+
+    if not issues:
+        print("\n✓ No GDP violations found.")
+        return []
+
+    print(f"\n{len(issues)} GDP violation(s) found:\n")
+    for i, issue in enumerate(issues, 1):
+        doc = issue.get("document", "—")
+        rule = issue.get("rule", "—")
+        location = issue.get("location", "—")
+        desc = issue.get("description", "—")
+        print(f"  [{i}] {doc} | {rule}")
+        print(f"       Location : {location}")
+        print(f"       Issue    : {desc}\n")
+
+    return issues
 
 
 def _display_download_link(filename: str, folder_name: str) -> None:

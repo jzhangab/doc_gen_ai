@@ -262,6 +262,40 @@ documents must be explicit and specific, not generic.
 """
 
 
+def gdp_check(doc_texts: list, connection_id: str = None) -> list:
+    """Run a GDP-only audit on one or more document texts.
+
+    Returns a list of issues: [{file, rule, location, description}]
+    """
+    combined = "\n\n---\n\n".join(
+        f"[Document {i+1}]\n{_trunc(t)}" for i, t in enumerate(doc_texts)
+    )
+    result = _llm_json([
+        {
+            "role": "system",
+            "content": (
+                "You are a GDP auditor for ISO 13485 regulated software documentation. "
+                "Identify every Good Documentation Practice violation in the provided documents. "
+                "Return only valid JSON."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "Audit these documents for GDP violations.\n\n"
+                f"{combined}\n\n"
+                f"GDP rules to check against:\n{_GDP_RULES}\n"
+                "For each violation return:\n"
+                '{"issues": [{"document": "Document N", "rule": "ATTRIBUTABLE|ACCURATE|COMPLETE|'
+                'CONSISTENT|TRACEABLE|LEGIBLE|CONTEMPORANEOUS", '
+                '"location": "section or paragraph reference", "description": "concise description"}]}\n'
+                "Return an empty list if no violations found."
+            ),
+        },
+    ], connection_id=connection_id)
+    return result.get("issues", [])
+
+
 def critique_document(doc_type: str, sections: list, connection_id: str = None) -> list:
     """Scan all sections and return a list of issues to fix.
 

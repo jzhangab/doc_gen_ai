@@ -61,3 +61,22 @@ run(
     context_examples_folder=CONTEXT_EXAMPLES_FOLDER,
     output_folder=OUTPUT_FOLDER,
 )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CELL 3 — GDP Check (run independently of document generation)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Folder containing documents to audit. Upload any .docx/.pdf/.xlsx/.pptx files.
+GDP_CHECK_FOLDER = "gdp_check"
+
+for _mod in list(sys.modules):
+    if _mod.startswith("doc_gen_ai"):
+        del sys.modules[_mod]
+
+from doc_gen_ai.pipeline import run_gdp_check
+
+run_gdp_check(
+    gdp_check_folder=GDP_CHECK_FOLDER,
+    connection_id=LLM_CONNECTION_ID or None,
+)
