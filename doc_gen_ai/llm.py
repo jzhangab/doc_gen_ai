@@ -49,12 +49,26 @@ def _llm_call(messages: list, connection_id: str = None) -> str:
 
 
 def _llm_json(messages: list, connection_id: str = None) -> dict:
-    raw = _llm_call(messages, connection_id=connection_id).strip()
-    if raw.startswith("```"):
-        raw = "\n".join(
-            ln for ln in raw.splitlines() if not ln.strip().startswith("```")
-        ).strip()
-    return json.loads(raw)
+    last_exc = None
+    for attempt in range(1, _MAX_RETRIES + 1):
+        raw = _llm_call(messages, connection_id=connection_id).strip()
+        if raw.startswith("```"):
+            raw = "\n".join(
+                ln for ln in raw.splitlines() if not ln.strip().startswith("```")
+            ).strip()
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as exc:
+            last_exc = exc
+            if attempt < _MAX_RETRIES:
+                logger.warning(
+                    "JSON decode failed (attempt %d/%d): %s — retrying…",
+                    attempt, _MAX_RETRIES, exc,
+                )
+                print(f"      [retry {attempt}/{_MAX_RETRIES}] JSON parse error: {exc} — retrying…")
+            else:
+                logger.error("JSON decode failed after %d attempts: %s", _MAX_RETRIES, exc)
+    raise last_exc
 
 
 def select_relevant_templates(filenames: list, doc_type: str, connection_id: str = None) -> str:
@@ -285,7 +299,9 @@ def gdp_check(doc_texts: list, connection_id: str = None) -> list:
                 "Audit these documents for GDP violations.\n\n"
                 f"{combined}\n\n"
                 f"GDP rules to check against:\n{_GDP_RULES}\n"
-                "For each violation return:\n"
+                "For each violation return a JSON object. "
+                "Keep every string field under 20 words. "
+                "Group multiple violations of the same rule in the same section into one entry.\n"
                 '{"issues": [{"document": "Document N", "rule": "ATTRIBUTABLE|ACCURATE|COMPLETE|'
                 'CONSISTENT|TRACEABLE|LEGIBLE|CONTEMPORANEOUS", '
                 '"location": "section or paragraph reference", "description": "concise description"}]}\n'
