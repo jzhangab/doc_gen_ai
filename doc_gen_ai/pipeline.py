@@ -3,9 +3,10 @@ from datetime import datetime
 
 from . import config
 from .llm import (
-    assemble_docx, critique_document, deduplicate_sections, deep_research,
-    discover_template_structure, extract_writing_context, fix_section_content,
-    gdp_check, generate_section, select_relevant_templates,
+    assemble_docx, assemble_summary_docx, critique_document, deduplicate_sections,
+    deep_research, discover_template_structure, extract_writing_context,
+    fix_section_content, gdp_check, generate_section, generate_summary,
+    select_relevant_templates,
 )
 from .parsing import extract_text
 from .storage import get_file_url, list_folder_filenames, load_all_files, load_files_by_name, save_file
@@ -210,9 +211,17 @@ def run(
     slug = doc_type.lower().replace(" ", "_")
     filename = f"{slug}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
     save_file(config.OUTPUT_FOLDER, filename, docx_bytes)
-
-    print(f"\n✓ Done — '{filename}' saved to '{config.OUTPUT_FOLDER}'")
+    print(f"\n✓ Document — '{filename}' saved to '{config.OUTPUT_FOLDER}'")
     _display_download_link(filename, config.OUTPUT_FOLDER)
+
+    # ── Generate 1-page summary ───────────────────────────────────────────────
+    print("\nGenerating 1-page executive summary…")
+    summary_text = generate_summary(doc_type, sections_out, connection_id=conn)
+    summary_bytes = assemble_summary_docx(doc_type, summary_text)
+    summary_filename = f"{slug}_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
+    save_file(config.OUTPUT_FOLDER, summary_filename, summary_bytes)
+    print(f"✓ Summary  — '{summary_filename}' saved to '{config.OUTPUT_FOLDER}'")
+    _display_download_link(summary_filename, config.OUTPUT_FOLDER)
 
     return docx_bytes
 

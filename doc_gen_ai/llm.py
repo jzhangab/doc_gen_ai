@@ -444,6 +444,77 @@ def fix_section_content(
     ], connection_id=connection_id)
 
 
+def generate_summary(doc_type: str, sections: list, connection_id: str = None) -> str:
+    """Generate a 1-page executive summary with key features and insights."""
+    overview = "\n\n".join(
+        f"## {heading}\n{content[:1000]}{'…' if len(content) > 1000 else ''}"
+        for heading, content in sections
+    )
+    return _llm_call([
+        {
+            "role": "system",
+            "content": (
+                "You are an expert technical writer for ISO 13485 regulated software V&V documentation. "
+                "Write concisely and precisely. Every sentence must serve a purpose. "
+                "No filler, no repetition, no preamble.\n\n"
+                "Formatting rules for Microsoft Word rendering:\n"
+                "- Use bullet lists for genuinely enumerable parallel items.\n"
+                "- Use **text** for bold.\n"
+                "- Use ## for sub-headings.\n"
+                "- Separate blocks with a blank line.\n"
+                "Do not use any other markdown syntax."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f'Write a 1-page executive summary for the following "{doc_type}" document.\n\n'
+                f"Document sections:\n{overview}\n\n"
+                "Requirements:\n"
+                "- 350–450 words maximum (one page)\n"
+                "- Open with 2–3 sentences identifying the system and its purpose\n"
+                "- List key features, capabilities, or specifications covered\n"
+                "- Highlight critical compliance decisions, risks, or constraints\n"
+                "- Note any significant assumptions or dependencies\n\n"
+                "Synthesise insights — do not reproduce full section content. "
+                "Do not include a title or top-level heading."
+            ),
+        },
+    ], connection_id=connection_id)
+
+
+def assemble_summary_docx(doc_type: str, summary_text: str) -> bytes:
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Inches, Pt, RGBColor
+
+    doc = Document()
+
+    for sec in doc.sections:
+        sec.top_margin    = Inches(1)
+        sec.bottom_margin = Inches(1)
+        sec.left_margin   = Inches(1.25)
+        sec.right_margin  = Inches(1.25)
+
+    title = doc.add_heading(f"{doc_type} — Executive Summary", level=0)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    meta = doc.add_paragraph(
+        f"Standard: ISO 13485  |  Generated: {datetime.now().strftime('%Y-%m-%d')}"
+    )
+    meta.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    for run in meta.runs:
+        run.font.color.rgb = RGBColor(0x64, 0x74, 0x8B)
+        run.font.size = Pt(10)
+
+    doc.add_paragraph()
+    _render_content(doc, summary_text)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
 _TOC_SECTION_NAMES = {"table of contents", "contents", "toc"}
 
 
