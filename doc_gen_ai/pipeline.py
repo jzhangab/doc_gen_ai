@@ -1,5 +1,8 @@
+import logging
 import re
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from . import config
 from .llm import (
@@ -9,7 +12,7 @@ from .llm import (
     select_relevant_templates,
 )
 from .parsing import extract_text
-from .storage import get_file_url, list_folder_filenames, load_all_files, load_files_by_name, save_file
+from .storage import list_folder_filenames, load_all_files, load_files_by_name, save_file
 
 
 def _normalize_heading(h: str) -> str:
@@ -270,29 +273,27 @@ def run_gdp_check(
 
 
 def _display_download_link(filename: str, folder_name: str) -> None:
-    path = get_file_url(folder_name, filename)  # returns /dip/api/... relative path
     try:
+        import base64
+        import dataiku
         from IPython.display import HTML, display
-        if path:
-            # window.top.location.origin resolves the true browser-facing origin,
-            # bypassing the internal Dataiku address that relative URLs resolve to
-            # when notebook output is rendered inside an iframe.
-            js_url = f"window.top.location.origin + '{path}'"
-            display(HTML(
-                f'<a href="#" '
-                f'onclick="window.open({js_url}, \'_blank\'); return false;" '
-                f'style="display:inline-block;margin-top:8px;padding:8px 16px;'
-                f'background:#2563eb;color:#fff;border-radius:6px;'
-                f'text-decoration:none;font-family:sans-serif;font-size:13px;">'
-                f'⬇ Download {filename}</a>'
-            ))
-        else:
-            display(HTML(
-                f'<span style="font-family:sans-serif;font-size:13px;color:#64748b">'
-                f'Saved: {filename} (open the {folder_name} folder to download)</span>'
-            ))
-    except Exception:
-        if path:
-            print(f"Download path: {path}")
-        else:
-            print(f"Saved: {filename}")
+
+        folder = dataiku.Folder(folder_name)
+        with folder.get_download_stream(f"/{filename}") as stream:
+            data = stream.read()
+
+        b64 = base64.b64encode(data).decode("ascii")
+        mime = (
+            "application/vnd.openxmlformats-officedocument"
+            ".wordprocessingml.document"
+        )
+        display(HTML(
+            f'<a href="data:{mime};base64,{b64}" download="{filename}" '
+            f'style="display:inline-block;margin-top:8px;padding:8px 16px;'
+            f'background:#2563eb;color:#fff;border-radius:6px;'
+            f'text-decoration:none;font-family:sans-serif;font-size:13px;">'
+            f'⬇ Download {filename}</a>'
+        ))
+    except Exception as exc:
+        logger.warning("Could not create download link for %s: %s", filename, exc)
+        print(f"Saved: {filename}  (open the '{folder_name}' folder to download)")
