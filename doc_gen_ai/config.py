@@ -6,15 +6,4 @@ CONTEXT_EXAMPLES_FOLDER = "context_examples"
 OUTPUT_FOLDER = "generated_docs"
 GDP_CHECK_FOLDER = "gdp_check"
 
-DOC_TYPES = [
-    "Administration Guide",
-    "Infrastructure Configuration Specification",
-    "Installation Checklist Protocol",
-    "Requirement and Design Specification",
-    "System Support Plan",
-    "System Test Protocol",
-    "User Guide",
-    "Verification Plan",
-]
-
 _MAX_CHARS = 12000

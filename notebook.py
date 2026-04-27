@@ -21,10 +21,8 @@ lib/python/ directory so it is importable.
 # CELL 1 — Configuration
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Document type to generate. Must match one of:
-#   Administration Guide | Infrastructure Configuration Specification
-#   Installation Checklist Protocol | Requirement and Design Specification
-#   System Support Plan | System Test Protocol | User Guide | Verification Plan
+# Document type to generate. Must correspond to a template file in TEMPLATES_FOLDER.
+# Available types are determined by whatever files you have uploaded there.
 DOC_TYPE = "User Guide"
 
 # Dataiku LLM Mesh connection ID. Leave blank to use the library default.

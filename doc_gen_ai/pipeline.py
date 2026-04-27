@@ -41,10 +41,6 @@ def run(
 
     Returns the raw docx bytes.
     """
-    if doc_type not in config.DOC_TYPES:
-        raise ValueError(
-            f"Unknown doc_type '{doc_type}'. Valid types:\n  " + "\n  ".join(config.DOC_TYPES)
-        )
     if connection_id:
         config.DEFAULT_LLM_CONNECTION_ID = connection_id
     if project_docs_folder:
