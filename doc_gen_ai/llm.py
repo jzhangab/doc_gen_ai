@@ -232,7 +232,14 @@ def generate_section(
                 "software V&V documentation. "
                 "Write concisely: every sentence must earn its place. "
                 "State facts directly — no preamble, no filler, no restating what the heading already says. "
-                "Aim for the minimum word count that fully satisfies the section's purpose.\n\n"
+                "Target 150–250 words per section; only exceed this if the section genuinely requires more detail.\n\n"
+                "NEVER write any of the following:\n"
+                "- Opening sentences that restate the heading or explain what the section will cover "
+                '(e.g. "This section describes…", "The purpose of this section is…")\n'
+                '- Filler phrases ("It is important to note that…", "It should be noted that…", '
+                '"As mentioned above…", "Please note that…")\n'
+                "- Redundant qualifiers (\"various\", \"numerous\", \"a number of\", \"in order to\")\n"
+                "- Padding conclusions that summarise what was just written\n\n"
                 "Formatting rules for Microsoft Word rendering:\n"
                 "- PARAGRAPHS are the default. Use full sentences; do not pad them.\n"
                 "- Use bullet lists ONLY when items are genuinely enumerable with no natural prose "
@@ -426,6 +433,9 @@ def fix_section_content(
                 f"{_GDP_RULES}\n"
                 "Write concisely: state facts directly, no preamble or filler. "
                 "Every sentence must serve a purpose. "
+                "Target 150–250 words; never open with a sentence that restates the heading or "
+                "explains what the section will cover. "
+                'Omit filler phrases ("It is important to note", "It should be noted", "In order to"). '
                 "Use bullet lists only for genuinely enumerable parallel items (4+), "
                 "numbered lists only for sequential steps. "
                 "Format using: ## sub-headings, **bold**, pipe tables. "
