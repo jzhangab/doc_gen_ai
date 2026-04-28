@@ -8,8 +8,8 @@ from . import config
 from .llm import (
     assemble_docx, assemble_summary_docx, critique_document, deduplicate_sections,
     deep_research, discover_template_structure, extract_writing_context,
-    fix_section_content, gdp_check, generate_section, generate_summary,
-    select_relevant_templates,
+    fix_section_content, gdp_check, generate_mermaid_diagram, generate_section,
+    generate_summary, select_relevant_templates,
 )
 from .parsing import extract_text
 from .storage import list_folder_filenames, load_all_files, load_files_by_name, save_file
@@ -136,6 +136,12 @@ def run(
             doc_type, section, research, style, reg_lang,
             writing_context=writing_context, connection_id=conn,
         )
+        diagram = generate_mermaid_diagram(
+            section["heading"], content, doc_type, connection_id=conn,
+        )
+        if diagram:
+            print(f"        → process flow diagram generated")
+            content += f"\n\n## Process Flow\n\n```mermaid\n{diagram}\n```"
         sections_out.append((section["heading"], content))
 
     # ── Step 7: Critique, fix, and deduplicate ───────────────────────────────

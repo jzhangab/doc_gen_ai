@@ -343,7 +343,8 @@ def critique_document(doc_type: str, sections: list, connection_id: str = None) 
                 "Check for ALL of the following issue types:\n\n"
                 "1. DUPLICATE — content that substantially repeats another section\n"
                 "2. FORMATTING — broken or inconsistent formatting "
-                "(raw markdown symbols, mismatched list styles)\n"
+                "(raw markdown symbols, mismatched list styles). "
+                "Mermaid code fences (```mermaid ... ```) are intentional and must NOT be flagged.\n"
                 "3. INCOMPLETE — generic, placeholder-only, or missing required elements\n"
                 f"4. GDP — any violation of the following rules:\n{_GDP_RULES}\n"
                 "Return JSON — empty list if no issues. "
@@ -428,6 +429,7 @@ def fix_section_content(
                 "Use bullet lists only for genuinely enumerable parallel items (4+), "
                 "numbered lists only for sequential steps. "
                 "Format using: ## sub-headings, **bold**, pipe tables. "
+                "Preserve any ```mermaid ... ``` blocks exactly as-is. "
                 "Return only the corrected section content."
             ),
         },
@@ -442,6 +444,50 @@ def fix_section_content(
             ),
         },
     ], connection_id=connection_id)
+
+
+def generate_mermaid_diagram(
+    section_heading: str, section_content: str, doc_type: str,
+    connection_id: str = None,
+) -> str | None:
+    """Detect complex multi-step processes and generate a mermaid flowchart.
+
+    Returns mermaid syntax if the section describes a sequential user procedure
+    or technical system process flow with 3+ steps; None otherwise.
+    """
+    result = _llm_json([
+        {
+            "role": "system",
+            "content": (
+                "You are a technical documentation expert. Determine whether section content "
+                "contains a complex multi-step process suitable for a flow diagram, then "
+                "generate one if so. Return only valid JSON."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f'Section: "{section_heading}" (from a "{doc_type}" document)\n\n'
+                f"Content:\n{section_content[:3000]}\n\n"
+                "Qualify if this section describes ONE of:\n"
+                "- Sequential steps a user must follow (installation, configuration, operation)\n"
+                "- A technical system process flow (data flows, integration sequences, workflows)\n\n"
+                "Do NOT qualify: requirement lists, feature descriptions, tables of data, "
+                "explanatory prose without sequential steps, sections with fewer than 3 steps.\n\n"
+                'If qualifying: {"has_process": true, "mermaid": "flowchart TD\\n..."}\n'
+                'If not qualifying: {"has_process": false, "mermaid": null}\n\n'
+                "Mermaid rules:\n"
+                "- Use flowchart TD syntax\n"
+                "- Node labels max 6 words, wrapped in quotes if they contain special chars\n"
+                "- Use diamond shapes {} for decision points\n"
+                "- Maximum 15 nodes\n"
+                "- Valid mermaid 10.x syntax only"
+            ),
+        },
+    ], connection_id=connection_id)
+    if result.get("has_process") and result.get("mermaid"):
+        return result["mermaid"]
+    return None
 
 
 def generate_summary(doc_type: str, sections: list, connection_id: str = None) -> str:
@@ -609,6 +655,57 @@ def assemble_docx(doc_type: str, sections: list) -> bytes:
     return buf.getvalue()
 
 
+def _render_mermaid_in_doc(doc, mermaid_code: str) -> None:
+    """Render mermaid diagram as PNG via mermaid.ink, or fall back to styled code block."""
+    import base64
+    import io
+    import urllib.request
+
+    try:
+        encoded = base64.urlsafe_b64encode(mermaid_code.encode()).decode().rstrip("=")
+        url = f"https://mermaid.ink/img/{encoded}"
+        req = urllib.request.Request(url, headers={"User-Agent": "doc-gen-ai/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            img_bytes = resp.read()
+        from docx.shared import Inches
+        para = doc.add_paragraph()
+        para.add_run().add_picture(io.BytesIO(img_bytes), width=Inches(5.5))
+        return
+    except Exception as exc:
+        logger.warning("mermaid.ink render failed (%s) — falling back to code block", exc)
+
+    # Fallback: styled code block
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.shared import Pt
+
+    label = doc.add_paragraph()
+    label.add_run("Process Flow Diagram (Mermaid source):").bold = True
+
+    for line in mermaid_code.splitlines():
+        p = doc.add_paragraph(style="No Spacing")
+        run = p.add_run(line)
+        run.font.name = "Courier New"
+        run.font.size = Pt(9)
+        pPr = p._p.get_or_add_pPr()
+        pBdr = OxmlElement("w:pBdr")
+        for side in ("top", "left", "bottom", "right"):
+            border = OxmlElement(f"w:{side}")
+            border.set(qn("w:val"), "single")
+            border.set(qn("w:sz"), "4")
+            border.set(qn("w:space"), "1")
+            border.set(qn("w:color"), "AAAAAA")
+            pBdr.append(border)
+        pPr.append(pBdr)
+        shd = OxmlElement("w:shd")
+        shd.set(qn("w:val"), "clear")
+        shd.set(qn("w:color"), "auto")
+        shd.set(qn("w:fill"), "F5F5F5")
+        pPr.append(shd)
+
+    doc.add_paragraph()
+
+
 def _render_content(doc, content: str) -> None:
     import re
     lines = content.splitlines()
@@ -647,13 +744,26 @@ def _render_content(doc, content: str) -> None:
             i = _render_table(doc, lines, i)
             continue
 
+        # Mermaid code fence
+        if stripped.startswith("```mermaid"):
+            mermaid_lines = []
+            i += 1
+            while i < len(lines):
+                if lines[i].strip() == "```":
+                    i += 1
+                    break
+                mermaid_lines.append(lines[i])
+                i += 1
+            _render_mermaid_in_doc(doc, "\n".join(mermaid_lines))
+            continue
+
         # Plain paragraph — accumulate consecutive non-special lines
         block = []
         while i < len(lines):
             s = lines[i].strip()
             if not s:
                 break
-            if s.startswith(("## ", "### ", "- ", "* ", "|")) or re.match(r"^\d+\.\s", s):
+            if s.startswith(("## ", "### ", "- ", "* ", "|", "```")) or re.match(r"^\d+\.\s", s):
                 break
             block.append(s)
             i += 1
