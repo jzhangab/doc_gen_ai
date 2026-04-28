@@ -449,7 +449,7 @@ def fix_section_content(
 def generate_mermaid_diagram(
     section_heading: str, section_content: str, doc_type: str,
     connection_id: str = None,
-) -> str | None:
+) -> "str | None":
     """Detect complex multi-step processes and generate a mermaid flowchart.
 
     Returns mermaid syntax if the section describes a sequential user procedure
